@@ -1,0 +1,320 @@
+{
+  "referenceDate": "2026-10-03",
+  "referenceSnapshotSha256": "9ca4c3fee79aca2f19b75fc32faee17f6bbf3013490f5d205b465547dfbc85de",
+  "referenceExperts": 41,
+  "extraLocalExperts": 3,
+  "referenceGlossaries": 36,
+  "removedGlossaryIds": [
+    "public-game",
+    "public-stellar-blade-clothing",
+    "public-Shelter69-Slang",
+    "public-hd2",
+    "public-bg3",
+    "public-wuthering-waves"
+  ],
+  "retainedGlossaries": [
+    {
+      "id": "public-default",
+      "name": "通用",
+      "languages": {
+        "auto": 2
+      }
+    },
+    {
+      "id": "public-twitter",
+      "name": "社交媒体人名",
+      "languages": {
+        "zh-CN": 10,
+        "zh-TW": 10
+      }
+    },
+    {
+      "id": "public-web3",
+      "name": "Web3",
+      "languages": {
+        "auto": 8,
+        "zh-CN": 58,
+        "zh-TW": 59
+      }
+    },
+    {
+      "id": "public-tech",
+      "name": "科技",
+      "languages": {
+        "auto": 21,
+        "zh-CN": 23,
+        "zh-TW": 23
+      }
+    },
+    {
+      "id": "public-news",
+      "name": "新闻媒体",
+      "languages": {
+        "zh-CN": 16,
+        "zh-TW": 16
+      }
+    },
+    {
+      "id": "public-ao3",
+      "name": "同人阅读",
+      "languages": {
+        "zh-CN": 49,
+        "zh-TW": 49
+      }
+    },
+    {
+      "id": "public-programming",
+      "name": "编程",
+      "languages": {
+        "auto": 15,
+        "zh-CN": 45,
+        "zh-TW": 45
+      }
+    },
+    {
+      "id": "public-education",
+      "name": "教育",
+      "languages": {
+        "zh-CN": 114,
+        "zh-TW": 114
+      }
+    },
+    {
+      "id": "public-finance",
+      "name": "金融",
+      "languages": {
+        "zh-CN": 28,
+        "zh-TW": 28
+      }
+    },
+    {
+      "id": "public-legal",
+      "name": "法律",
+      "languages": {
+        "zh-CN": 99,
+        "zh-TW": 99
+      }
+    },
+    {
+      "id": "public-car",
+      "name": "汽车",
+      "languages": {
+        "zh-CN": 72,
+        "zh-TW": 72
+      }
+    },
+    {
+      "id": "public-ecommerce",
+      "name": "电商",
+      "languages": {
+        "zh-CN": 74,
+        "zh-TW": 74
+      }
+    },
+    {
+      "id": "public-fashion",
+      "name": "时尚",
+      "languages": {
+        "zh-CN": 11,
+        "zh-TW": 11
+      }
+    },
+    {
+      "id": "public-food",
+      "name": "美食",
+      "languages": {
+        "zh-CN": 51,
+        "zh-TW": 55
+      }
+    },
+    {
+      "id": "public-gardening",
+      "name": "园艺",
+      "languages": {
+        "zh-CN": 63,
+        "zh-TW": 63
+      }
+    },
+    {
+      "id": "public-medical",
+      "name": "医疗",
+      "languages": {
+        "zh-CN": 89,
+        "zh-TW": 89
+      }
+    },
+    {
+      "id": "public-music",
+      "name": "音乐",
+      "languages": {
+        "zh-CN": 73,
+        "zh-TW": 73
+      }
+    },
+    {
+      "id": "public-pet",
+      "name": "宠物",
+      "languages": {
+        "zh-CN": 47,
+        "zh-TW": 47
+      }
+    },
+    {
+      "id": "public-sports",
+      "name": "体育",
+      "languages": {
+        "zh-CN": 24,
+        "zh-TW": 24
+      }
+    },
+    {
+      "id": "public-travel",
+      "name": "旅游",
+      "languages": {
+        "zh-CN": 56,
+        "zh-TW": 56
+      }
+    },
+    {
+      "id": "public-chess",
+      "name": "国际象棋",
+      "languages": {
+        "zh-CN": 35,
+        "zh-TW": 35
+      }
+    },
+    {
+      "id": "public-golf",
+      "name": "高尔夫",
+      "languages": {
+        "zh-CN": 54,
+        "zh-TW": 54
+      }
+    },
+    {
+      "id": "public-movie",
+      "name": "电影",
+      "languages": {
+        "zh-CN": 74,
+        "zh-TW": 75
+      }
+    },
+    {
+      "id": "public-photography",
+      "name": "摄影",
+      "languages": {
+        "zh-CN": 44,
+        "zh-TW": 44
+      }
+    },
+    {
+      "id": "public-Vocaloid",
+      "name": "歌声合成",
+      "languages": {
+        "zh-CN": 0
+      }
+    },
+    {
+      "id": "public-access-control",
+      "name": "访问控制",
+      "languages": {
+        "zh-CN": 8
+      }
+    },
+    {
+      "id": "public-biology",
+      "name": "生物学",
+      "languages": {
+        "zh-CN": 26
+      }
+    },
+    {
+      "id": "public-tennis",
+      "name": "网球",
+      "languages": {
+        "zh-CN": 55,
+        "zh-TW": 55
+      }
+    },
+    {
+      "id": "public-programming-contest",
+      "name": "算法竞赛",
+      "languages": {
+        "zh-CN": 86,
+        "zh-TW": 86
+      }
+    },
+    {
+      "id": "public-packraft",
+      "name": "背包船与划艇",
+      "languages": {
+        "zh-CN": 334
+      }
+    }
+  ],
+  "glossaryRowsByLanguage": 3634,
+  "referenceExpertIds": [
+    "public-ao3",
+    "public-aviation",
+    "public-bilingual-mix",
+    "public-buddhist",
+    "public-chemistry",
+    "public-chess",
+    "public-classicalToModern",
+    "public-continental-philosophy",
+    "public-dbh",
+    "public-design",
+    "public-ebook",
+    "public-ecommerce",
+    "public-electronics",
+    "public-fashion",
+    "public-fiction",
+    "public-financial",
+    "public-game",
+    "public-github",
+    "public-golf",
+    "public-japanese-history",
+    "public-legal",
+    "public-medical",
+    "public-motorsport",
+    "public-music",
+    "public-news",
+    "public-paper",
+    "public-paragraph-summarizer-expert",
+    "public-paraphrase",
+    "public-plain-english",
+    "public-price-action",
+    "public-programming-docs",
+    "public-reddit",
+    "public-steam",
+    "public-subliminal_lingo",
+    "public-tech",
+    "public-twitter",
+    "public-valorant-esports",
+    "public-VocabularyAssistant",
+    "public-web3",
+    "public-wordByWord",
+    "public-wyw"
+  ],
+  "referenceGlossaryRowsByLanguage": 3120,
+  "extendedGlossaries": [
+    {
+      "id": "public-access-control",
+      "name": "计算机科学",
+      "languages": {
+        "zh-CN": 125,
+        "zh-TW": 125
+      }
+    }
+  ],
+  "additionalGlossaries": [
+    {
+      "id": "builtin-llm-ai",
+      "name": "LLM / AI",
+      "languages": {
+        "zh-CN": 136,
+        "zh-TW": 136
+      }
+    }
+  ]
+}

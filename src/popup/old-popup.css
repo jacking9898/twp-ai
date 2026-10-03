@@ -36,16 +36,16 @@ button {
   cursor: pointer;
 }
 
-#btnPatreon {
+#btnProject {
   margin-top: 6px;
   border-radius: 50%;
   padding: 10px;
   cursor: pointer;
 }
 
-#btnPatreon:hover i,
-#btnPatreon:hover i::after,
-#btnPatreon:hover i::before {
+#btnProject:hover i,
+#btnProject:hover i::after,
+#btnProject:hover i::before {
   background-color: tomato;
 }
 
@@ -62,7 +62,7 @@ button {
 }
 
 .arrow-down {
-  border: solid #2196f3;
+  border: solid var(--accent, #b54708);
   border-width: 0 2px 2px 0;
   display: inline-block;
   padding: 3px;
@@ -99,7 +99,7 @@ option {
 }
 
 .arrow {
-  border: solid #2196f3;
+  border: solid var(--accent, #b54708);
   border-width: 0 2px 2px 0;
   display: inline-block;
   padding: 3px;

@@ -1,5 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Issues
-    url: https://github.com/FilipePS/just-testing/issues
-    about: Please, before creating a new issue, search to see if anyone has already created it
+  - name: Search existing Yedu issues
+    url: https://github.com/jacking9898/twp-ai/issues
+    about: Please check for existing reports before opening a new issue.

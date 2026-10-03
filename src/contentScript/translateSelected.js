@@ -1145,6 +1145,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   let lastTimePressedCtrl = null;
 
   function onKeyUp(e) {
+    if (typeof twpInteractiveTranslator !== "undefined" && twpInteractiveTranslator.available) return;
     if (e.key === "Escape") {
       destroy();
       return;
@@ -1186,6 +1187,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
 
   function updateEventListener() {
     if (
+      !(typeof twpInteractiveTranslator !== "undefined" && twpInteractiveTranslator.available) &&
       showTranslateSelectedButton == "yes" &&
       (awaysTranslateThisSite ||
         (translateThisSite && translateThisLanguage)) &&
@@ -1233,6 +1235,10 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "TranslateSelectedText") {
+      if (typeof twpInteractiveTranslator !== "undefined" && twpInteractiveTranslator.available) {
+        twpInteractiveTranslator.ready.then(() => twpInteractiveTranslator.translateSelection());
+        return;
+      }
       readSelection();
       init();
       translateSelText();

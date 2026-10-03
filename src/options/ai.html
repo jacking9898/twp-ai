@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>页渡 · Yedu · AI 翻译</title><link rel="stylesheet" href="ai.css"><link rel="stylesheet" href="/lib/brandTheme.css"></head>
+<body>
+  <main>
+    <header><img src="/icons/reading.png" alt=""><div><p class="eyebrow">页渡 · Yedu / 翻译工作台</p><h1>让专业内容更好读</h1><p class="muted">连接自己的模型，统一术语与翻译风格。</p></div><a href="options.html">其他设置</a></header>
+    <div class="layout">
+      <section class="card">
+        <div class="section-title"><h2>模型服务</h2><button id="new-profile" type="button">添加服务</button></div>
+        <label>已保存的服务<select id="profiles"><option value="">添加第一组服务</option></select></label>
+        <form id="profile-form">
+          <label>服务名称<input id="profile-name" required maxlength="80" placeholder="例如：我的翻译模型"></label>
+          <label>API 地址<input id="base-url" type="url" required placeholder="https://你的服务地址/v1" autocomplete="off"></label>
+          <p class="hint">填写服务商提供的 Base URL；也支持完整的 /chat/completions 地址。本机服务可使用 HTTP。</p>
+          <label>模型名称<input id="model" required maxlength="200" placeholder="填写服务商的模型 ID" autocomplete="off"></label>
+          <label>API Key<input id="api-key" type="password" placeholder="本机免密服务可留空" autocomplete="off"></label>
+          <label class="check"><input id="clear-key" type="checkbox">清除已保存的密钥</label>
+          <p class="hint">密钥仅保存在本机扩展的独立存储中，普通设置导出不包含它。选中的文本会发送至你配置的 API。</p>
+          <div class="actions"><button class="primary" type="submit">保存服务</button><button id="test-profile" type="button">测试连接</button><button id="delete-profile" class="danger" type="button" disabled>删除</button></div>
+        </form>
+        <p id="profile-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card">
+        <h2>翻译偏好</h2>
+        <form id="preferences-form">
+          <label>默认网页翻译<select id="engine"><option value="bing">微软翻译</option><option value="google">谷歌翻译</option><option value="yandex">Yandex</option><option value="openai">AI · 当前模型服务</option></select></label>
+          <label>AI 使用的服务<select id="active-profile"></select></label>
+          <label>AI 专家<select id="domain"><option value="general">通用 · 根据上下文判断</option><option value="ml">机器学习 / 数据科学</option><option value="software">软件开发</option></select></label>
+          <label>默认风格<select id="default-style"></select></label><label>默认 AI 术语库<select id="default-library"></select></label><label>缩写处理<select id="acronyms"><option value="keep">保留原缩写</option><option value="expand">上下文明确时附中文释义</option></select></label>
+          <label>我的默认术语（始终叠加）<textarea id="glossary" rows="5" placeholder="每行一个术语，例如：&#10;feature engineering = 特征工程&#10;cross-validation = 交叉验证"></textarea></label>
+          <p class="hint">同样适用于选段翻译。与原有自定义词典合并使用；本页术语优先。</p>
+          <label class="check"><input id="floating-enabled" type="checkbox">显示网页悬浮按钮</label>
+          <div class="actions"><button class="primary" type="submit">保存偏好</button><button id="reset-hidden" type="button">恢复已隐藏网站的按钮</button></div>
+        </form>
+        <p id="preferences-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card">
+        <div class="section-title"><h2>AI 专家库</h2><button id="expert-new" type="button">新建专家</button></div>
+        <label>查看 / 编辑专家<select id="expert-edit"></select></label>
+        <p class="hint">内置专家使用 页渡 · Yedu 独立编写的任务提示词，修改后另存为自己的版本。<a id="expert-source" target="_blank" rel="noopener">查看公开来源 ↗</a></p>
+        <form id="expert-form"><label>专家名称<input id="expert-name" maxlength="80" required></label><label>任务提示词<textarea id="expert-prompt" rows="10" maxlength="6000" required placeholder="描述擅长的领域、翻译策略、语气和需要保留的内容…"></textarea></label><p class="hint">{{to}} 会替换为目标语言。只需描述翻译任务，段落和输出格式由扩展处理。</p><div class="actions"><button id="expert-save" class="primary">保存专家</button><button id="expert-delete" class="danger" type="button" disabled>删除</button></div></form><p id="expert-status" role="status"></p>
+      </section>
+      <section class="card">
+        <div class="section-title"><h2>AI 术语库</h2><button id="library-new" type="button">新建术语库</button></div>
+        <label>查看 / 编辑术语库<select id="library-edit"></select></label>
+        <p class="hint">内置术语库按目标语言匹配，仅将文本命中的词条用于 AI 翻译；可查看条数和来源，也可另存后编辑。<a id="library-source" target="_blank" rel="noopener">查看公开来源 ↗</a></p>
+        <form id="library-form"><label>术语库名称<input id="library-name" maxlength="80" required></label><label>适用目标语言<select id="library-language"></select></label><label>术语（原文 = 译文）<textarea id="library-terms" rows="10" placeholder="random forest = 随机森林"></textarea></label><div class="actions"><button id="library-save" class="primary">保存术语库</button><button id="library-delete" class="danger" type="button" disabled>删除</button></div></form><p id="library-status" role="status"></p>
+      </section>
+      <section class="card" id="cache-settings">
+        <h2>AI 翻译缓存</h2><p><a href="insights.html" target="_blank">查看 AI token 用量与历史记录 ↗</a></p>
+        <form id="cache-form">
+          <label class="check"><input id="cache-enabled" type="checkbox">保存自定义 AI 的翻译结果</label>
+          <label>缓存有效期（小时）<input id="cache-hours" type="number" min="1" max="8760" step="1" required></label>
+          <p class="hint">默认 168 小时（7 天）。网页刷新后可恢复近期的 AI 翻译；再次打开同一 PDF 并翻译时也会复用缓存。更换模型、语言、专家、风格或术语后会重新匹配。无痕窗口不保存缓存。</p>
+          <p class="hint">结果只保存在本机，不包含 API Key 或原始 PDF 文件。可随时使用“重新翻译”跳过缓存。关闭缓存会删除已有结果。</p>
+          <div class="actions"><button class="primary">保存缓存设置</button><button id="clear-ai-cache" type="button">清空 AI 缓存</button></div>
+        </form><p id="cache-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card preview">
+        <div class="section-title"><div><h2>试译一段文字</h2><p class="hint">使用已保存的当前 AI 服务、专业领域和术语库。</p></div><label>目标语言<select id="target"><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="en">English</option><option value="ja">日本語</option></select></label></div>
+        <div class="translation-columns"><label>原文<textarea id="source" rows="7" maxlength="16000" placeholder="粘贴需要翻译的内容…"></textarea></label><div><label>译文</label><div id="result" class="result" aria-live="polite">译文会显示在这里。</div></div></div>
+        <div class="actions"><button class="primary" id="translate" type="button">AI 翻译</button><button id="cancel" type="button" disabled>取消</button><button id="copy" type="button" disabled>复制译文</button></div>
+      </section>
+    </div>
+    <footer>网页 AI 翻译采用双语对照。悬浮按钮上方的四格图标可打开文本、PDF / TXT 文档和 SRT / VTT 字幕翻译侧边栏。</footer>
+  </main>
+  <script src="/lib/polyfill.js"></script><script src="/lib/checkedLastError.js"></script><script src="/lib/languages.js"></script><script src="/lib/config.js"></script><script src="/lib/platformInfo.js"></script><script src="/lib/builtinPresets.js"></script><script src="/lib/aiPresets.js"></script><script src="/lib/aiClient.js"></script><script src="presetEditor.js"></script><script src="ai.js"></script>
+</body></html>

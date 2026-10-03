@@ -6,9 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/w3css/4/w3.css">
     <link rel="stylesheet" href="popup.css">
-</head>
+<link rel="stylesheet" href="/lib/brandTheme.css"></head>
 
 <body style="width: 380px;">
+    <p data-translation-status role="status" aria-live="polite" hidden style="margin: 8px 60px 8px 16px; font-size: 13px;"></p>
     <div class="w3-bar" style="width: 280px;" data-popupPanelSection="0">
         <button class="w3-bar-item w3-button w3-ripple w3-hover-light-blue w3-buttonSelected"
             style="border-radius: 5px 0px 0px 0px; position: relative;" title="Show original"
@@ -26,6 +27,13 @@
     </div>
 
     <div class="w3-container w3-margin-top" style="font-weight: 500">
+        <div style="margin-bottom: 10px; margin-right: 50px;">
+            <label for="pageTranslationMode" data-i18n="lblPageTranslationMode">Page display</label>
+            <select id="pageTranslationMode" data-translation-mode class="w3-select w3-border w3-round">
+                <option value="bilingual" data-i18n="msgBilingualMode">Original + translation</option>
+                <option value="translated" data-i18n="msgTranslatedMode">Translation only</option>
+            </select>
+        </div>
         <div data-popupPanelSection="0">
             <div style="margin-right: 60px; margin-bottom: 5px;">
                 <button data-i18n="msgImproveTranslation" id="btnImproveTranslation">Improve translation</button>
@@ -89,8 +97,7 @@
             data-i18n-title="swapPopup">
             <i class="gg-swap"></i>
         </div>
-        <!-- <a href="https://www.patreon.com/filipeps" target="blank"><img src="/icons/patreon_icon.png" style="top: 75px; right: 5px; width: 32px; position: absolute;"></a> -->
-    </div>
+</div>
 
     <div class="w3-display-topright" style="margin-right: 35px; margin-top: 10px; position: absolute;">
         <div class="w3-hover-light-gray" style="position: relative;" id="divMenu" title="Options"
@@ -122,14 +129,14 @@
                 </option>
                 <option data-i18n="btnMoreOptions" value="moreOptions">More options</option>
                 <option data-i18n="msgTranslatePDF" value="translatePDF">Translate PDF</option>
-                <option data-i18n="btnDonate" value="donate">Donate</option>
+                <option data-i18n="lblAboutProject" value="about">About 页渡 · Yedu</option>
             </select>
         </div>
     </div>
 
-    <div class="w3-display-topright w3-hover-light-grey" id="btnPatreon" title="patreon"
-        style="margin-top: 8px; margin-right: 55px;" data-i18n-title="lblMakeDonation">
-        <i class="gg-heart" style="scale: 0.85"></i>
+    <div class="w3-display-topright w3-hover-light-grey" id="btnProject" title="About 页渡 · Yedu"
+        style="margin-top: 8px; margin-right: 55px;" data-i18n-title="lblAboutProject">
+        <span aria-hidden="true" style="font-size:18px;font-weight:bold">ⓘ</span>
     </div>
 
     <div class="w3-display-topright" style="margin-right: 15px; margin-top: 45px; position: absolute; cursor: pointer;">
@@ -147,6 +154,7 @@
     <script src="/lib/languages.js"></script>
     <script src="/lib/config.js"></script>
     <script src="/lib/i18n.js"></script>
+    <script src="/lib/translationMode.js"></script>
     <script src="popup.js"></script>
 </body>
 

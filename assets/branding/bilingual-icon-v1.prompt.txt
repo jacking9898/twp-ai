@@ -1,0 +1,14 @@
+Generator: built-in image_gen (transparent_background=true)
+Design: bilingual reading, an open book with A and 文.
+Asset: bilingual-icon-v1.png
+
+Use case: logo-brand.
+Asset type: a single polished browser extension app icon for a bilingual webpage translator, a new original identity for a TWP-based project.
+Primary request: Design a memorable, clean translation icon that expresses original text and its translation staying together while reading.
+Subject: a bold rounded-square app tile containing a clever compact open-book / paired-reading-pages emblem. Integrate just two large, clearly legible language glyphs, "A" and "文", one per page, so the emblem instantly reads as bilingual reading. Make both pages feel equally important and visually connected.
+Style: premium contemporary flat vector-style brand design, precise geometric curves, a restrained coherent color treatment, strong light-dark contrast, solid substantial strokes and generous spacing. Slight restrained depth through overlapping shapes is acceptable, but keep the result graphic rather than 3D.
+Composition: exactly one icon, centered, straight-on, square canvas, tile fills about 88 percent of the canvas with balanced transparent margins. Designed for a browser toolbar at 32 pixels as well as a 128 pixel extension listing. Prioritize a striking silhouette and very few details.
+Text: only "A" and "文", rendered accurately and boldly, no app name or tagline.
+Background: actual transparent alpha outside the rounded-square tile.
+Avoid: presentation sheets, alternate versions, mockups, grids, extra badges, arrows, sparkles, gradients with excessive gloss, shadows outside the tile, tiny paragraph lines, hairline outlines, watermarks, imitation of Google Translate or Immersive Translate logos.
+Deliver a finished icon asset, not a sketch.

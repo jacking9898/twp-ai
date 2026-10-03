@@ -594,25 +594,31 @@ const textToSpeech = (function () {
     if (request.action === "offscreen_bing_textToSpeech") {
       bingService
         .textToSpeech(request.text, request.targetLanguage)
-        .then(() => sendResponse());
+        .then(() => sendResponse(), error => sendResponse({ error: String(error) }));
       return true;
     } else if (request.action === "offscreen_google_textToSpeech") {
       googleService
         .textToSpeech(request.text, request.targetLanguage)
-        .then(() => sendResponse());
+        .then(() => sendResponse(), error => sendResponse({ error: String(error) }));
       return true;
     } else if (request.action === "offscreen_google_stopAll") {
       googleService.stopAll();
+      sendResponse();
     } else if (request.action === "offscreen_bing_stopAll") {
       bingService.stopAll();
+      sendResponse();
     } else if (request.action === "offscreen_google_ttsSpeed") {
       googleService.setAudioSpeed(request.speed);
+      sendResponse();
     } else if (request.action === "offscreen_bing_ttsSpeed") {
       bingService.setAudioSpeed(request.speed);
+      sendResponse();
     } else if (request.action === "offscreen_google_ttsVolume") {
       googleService.setAudioVolume(request.volume);
+      sendResponse();
     } else if (request.action === "offscreen_bing_ttsVolume") {
       bingService.setAudioVolume(request.volume);
+      sendResponse();
     }
   });
 

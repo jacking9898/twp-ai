@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>TWP - Translate Web Pages</title>
+  <title>页渡 · Yedu</title>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/w3css/4/w3.css" />
@@ -13,7 +13,7 @@
 <body class="w3-content" style="max-width: 1200px">
   <nav class="w3-sidebar w3-bar-block w3-collapse w3-top" style="z-index: 3; width: 300px" id="sideBar">
     <div class="w3-container w3-display-container w3-padding-16">
-      <h3 class="w3-wide"><b>TWP - Translate Web Pages</b></h3>
+      <h3 class="w3-wide"><b>页渡 · Yedu</b></h3>
     </div>
     <div class="w3-padding-64 w3-large w3-text-grey" style="font-weight: bold">
       <a href="#languages" class="w3-bar-item w3-button" data-i18n="msgLanguages">Languages</a>
@@ -26,17 +26,16 @@
       <a href="#others" class="w3-bar-item w3-button" data-i18n="lblOthers">Others</a>
       <a href="#experimental" class="w3-bar-item w3-button" data-i18n="lblExperimental">Experimental</a>
     </div>
-    <b><a href="#donation" class="w3-bar-item w3-button w3-padding"><span data-i18n="lblMakeDonation">Make a
-          donation</span> &#10084;</a></b>
+    <b><a href="#about" class="w3-bar-item w3-button w3-padding" data-i18n="lblAboutProject">About 页渡 · Yedu</a></b>
     <a href="#release_notes" class="w3-bar-item w3-button w3-padding" data-i18n="lblReleaseNotes">Release Notes</a>
-    <a href="https://github.com/FilipePS/Traduzir-paginas-web/issues" target="blank"
+    <a href="https://github.com/jacking9898/twp-ai/issues" target="blank"
       class="w3-bar-item w3-button w3-padding" data-i18n="lblReport">Report a problem</a>
-    <a href="https://crowdin.com/project/translate-web-pages" target="blank" class="w3-bar-item w3-button w3-padding"
+    <a href="https://github.com/jacking9898/twp-ai/blob/HEAD/CONTRIBUTING.md" target="blank" class="w3-bar-item w3-button w3-padding"
       data-i18n="lblTranslateInterface">Translate the interface</a>
   </nav>
 
   <header class="w3-bar w3-top w3-black w3-hide-large w3-xlarge" id="header">
-    <div class="w3-bar-item w3-padding-20 w3-wide">TWP</div>
+    <div class="w3-bar-item w3-padding-20 w3-wide">页渡 · Yedu</div>
     <a class="w3-bar-item w3-button w3-padding-24 w3-right" id="btnOpenMenu">
       <div class="menu-container" id="menuContainer">
         <div class="bar1"></div>
@@ -55,10 +54,7 @@
       <p id="itemSelectedName" data-i18n="lblSettings" style="float: left">
         Settings
       </p>
-      <p style="float: right; display: none" id="btnPatreon">
-        <a href="https://www.patreon.com/filipeps" target="blank" class="patreonButton"><img src="/icons/patreon.png"
-            style="height: 40px" /></a>
-      </p>
+      <p style="float: right" id="btnProject"><a href="#about" data-i18n="lblAboutProject">About 页渡 · Yedu</a></p>
     </header>
 
     <div>
@@ -351,6 +347,13 @@
         <div class="desktopOnly">
           <br />
           <p>
+            <b data-i18n="lblPageTranslationMode">Page display</b>
+          </p>
+          <select id="pageTranslationMode" data-translation-mode class="w3-select w3-margin">
+            <option value="bilingual" data-i18n="msgBilingualMode">Original + translation</option>
+            <option value="translated" data-i18n="msgTranslatedMode">Translation only</option>
+          </select>
+          <p>
             <b data-i18n="lblShowOriginalTextWhenHovering">Show original text when hovering</b>
           </p>
           <select id="showOriginalTextWhenHovering" class="w3-select w3-margin">
@@ -635,74 +638,17 @@
       </div>
 
       <div>
-        <div id="donation" class="w3-container">
-          <section
-            style="background-color: #87CEEB; padding: 20px; border-radius: 20px; box-shadow: 0 0 10px 3px black;">
-            <div style="font-size: 1.2em;">
-              <p style="white-space: pre-line;" data-i18n="donationText">I have been developing, updating, and
-                supporting this
-                extension for over three years. It's amazing to see that we have over 600,000 daily users, and all of
-                these
-                people have been able to migrate to Firefox permanently.
-
-                I aim to release a new version of this extension every month and keep improving it.
-
-                I would be grateful if you could help me financially by becoming a Patreon member and supporting me in
-                bringing improvements to this extension.
-
-                Thank you to everyone who has already contributed to this project.</p>
-
-              <div style="display: flex; justify-content: space-between;">
-                <div>
-                  <a href="https://www.patreon.com/filipeps" target="blank" class="patreonButton"><img
-                      src="/icons/patreon.png" alt="Become a patreon" width="260" /></a>
-                </div>
-
-                <div style="font-size: 0.9em;">
-                  <b>
-                    <div style="display: inline-block" data-i18n="donatewithpaypal">
-                      Donate With PayPal
-                    </div>
-                  </b>
-                  <select id="currency" style="margin-left: 8px">
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                    <option value="BRL">BRL</option>
-                  </select>
-
-                  <div id="donateInUSD">
-                    <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
-                        <input type="hidden" name="cmd" value="_s-xclick" />
-                        <input type="hidden" name="hosted_button_id" value="9RDVSNMACNYBQ" />
-                        <input type="hidden" name="currency_code" value="USD" />
-                        <input type="image" src="/icons/paypal-donate-button.png" border="0" name="submit" alt="PayPal" />
-                        <img alt="" border="0" src="/icons/pixel.gif" width="1" height="1" />
-                    </form>
-                  </div>
-
-                <div id="donateInEUR">
-                    <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
-                        <input type="hidden" name="cmd" value="_s-xclick" />
-                        <input type="hidden" name="hosted_button_id" value="LZFMBNEXZPULE" />
-                        <input type="hidden" name="currency_code" value="EUR" />
-                        <input type="image" src="/icons/paypal-donate-button.png" border="0" name="submit" alt="PayPal" />
-                        <img alt="" border="0" src="/icons/pixel.gif" width="1" height="1" />
-                    </form>
-                </div>
-
-                  <div id="donateInBRL">
-                    <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_blank">
-                        <input type="hidden" name="cmd" value="_s-xclick" />
-                        <input type="hidden" name="hosted_button_id" value="GE76HB72PUCVW" />
-                        <input type="hidden" name="currency_code" value="BRL" />
-                        <input type="image" src="/icons/paypal-donate-button.png" border="0" name="submit" alt="PayPal" />
-                        <img alt="" border="0" src="/icons/pixel.gif" width="1" height="1" />
-                    </form>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+        <div id="about" class="w3-container">
+          <h2>页渡 · Yedu</h2>
+          <p>网页双语翻译 · 文本多模型对比 · 自定义 AI 专家与术语库</p>
+          <p>Independent fork maintained by jacking9898, based on
+            <a href="https://github.com/FilipePS/Traduzir-paginas-web" target="_blank" rel="noopener">TWP — Translate Web Pages</a>
+            by FilipePS and contributors. Distributed under MPL-2.0. Not an official release of the upstream project or Immersive Translate.</p>
+          <p><a href="ai.html">模型、专家与术语设置</a> · <a href="sidepanel.html?workspace=1">翻译工作台</a></p>
+          <p><a href="https://github.com/jacking9898/twp-ai" target="_blank" rel="noopener">源码 / Source</a> ·
+            <a href="https://github.com/jacking9898/twp-ai/issues" target="_blank" rel="noopener">反馈 / Issues</a> ·
+            <a href="https://github.com/jacking9898/twp-ai/blob/HEAD/PRIVACY.md" target="_blank" rel="noopener">隐私政策 / Privacy</a> ·
+            <a href="https://github.com/jacking9898/twp-ai/blob/HEAD/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">许可与致谢 / Notices</a></p>
         </div>
 
         <div id="release_notes" class="w3-container"></div>
@@ -716,6 +662,7 @@
     <script src="/lib/config.js"></script>
     <script src="/lib/platformInfo.js"></script>
     <script src="/lib/i18n.js"></script>
+    <script src="/lib/translationMode.js"></script>
     <script src="options.js"></script>
 </body>
 

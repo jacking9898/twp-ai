@@ -118,7 +118,7 @@ void (function () {
       padding: 7px;
     `;
     info.innerHTML = `
-      <p style="font-size: 20px; font-weight: bold;">TWP - Translate Web Pages</p>
+      <p style="font-size: 20px; font-weight: bold;">页渡 · Yedu</p>
       <p data-i18n="msgDeepLTabReasoOpened">This tab opened because you clicked to translate selected text using DeepL.</p>
       <button data-i18n="msgDontShowAgain">Don't show again</button>
     `;

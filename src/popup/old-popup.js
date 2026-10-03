@@ -69,12 +69,11 @@ twpConfig
     cbShowTranslateSelectedButton.checked =
       twpConfig.get("showTranslateSelectedButton") == "yes" ? true : false;
 
-    $("#btnPatreon").onclick = (e) => {
-      window.open("https://www.patreon.com/filipeps", "_blank");
+    $("#btnProject").onclick = (e) => {
+      tabsCreate(chrome.runtime.getURL("/options/options.html#about"));
     };
 
     $("#btnOptionB").innerHTML += ' <i class="arrow down"></i>';
-    $("#btnOptions option[value='donate']").innerHTML += " &#10084;";
 
     var cStyle = getComputedStyle(document.querySelector("#btnOptionB"));
     btnOptions.style.width = parseInt(cStyle.width) + 0 + "px";
@@ -266,7 +265,11 @@ twpConfig
     let showSelectTargetLanguage = false;
 
     function updateInterface() {
-      if (currentPageTranslatorService == "yandex") {
+      if (currentPageTranslatorService == "openai") {
+        $("#iconTranslate").setAttribute("src", "/icons/reading.png");
+        $("#iconTranslate").style.width = "32px";
+        $("#iconTranslate").style.height = "32px";
+      } else if (currentPageTranslatorService == "yandex") {
         $("#btnOptions option[value='translateInExternalSite']").textContent =
           twpI18n.getMessage("msgOpenOnYandexTranslator");
         $("#iconTranslate").setAttribute(
@@ -399,9 +402,7 @@ twpConfig
             btnTryAgain.style.display = "none";
             btnOptionsDiv.style.display = "none";
 
-            if (btnRestore.className.indexOf("w3-disabled") == -1) {
-              btnRestore.className += " w3-disabled";
-            }
+            divIconTranslateContainer.style.display = "block";
             break;
           case "error":
             lblTranslate.style.display = "none";
@@ -439,8 +440,13 @@ twpConfig
     }
     updateInterface();
 
+    document.addEventListener("twp-page-state", event => {
+      currentPageLanguageState = event.detail;
+      updateInterface();
+    });
+
     function onTranslateClick() {
-      currentPageLanguageState = "translated";
+      currentPageLanguageState = twpConfig.get("pageTranslationMode") === "bilingual" ? "translating" : "translated";
 
       chrome.tabs.query(
         {
@@ -689,9 +695,9 @@ twpConfig
             case "moreOptions":
               tabsCreate(chrome.runtime.getURL("/options/options.html"));
               break;
-            case "donate":
+            case "about":
               tabsCreate(
-                chrome.runtime.getURL("/options/options.html#donation")
+                chrome.runtime.getURL("/options/options.html#about")
               );
               break;
             case "translatePDF":

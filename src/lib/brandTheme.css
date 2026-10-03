@@ -1,0 +1,27 @@
+/* Yedu UI palette. Loaded after component styles, including inside shadow roots.
+ * PDF paper and source document graphics deliberately keep their own colors. */
+:root,:host {
+  --bg:#faf7f2; --surface:#fffdf9; --card:var(--surface);
+  --rail:#f2ece3; --field:#faf7f2;
+  --fg:#332b24; --text:var(--fg); --muted:#716254; --border:#d7c7b7;
+  --accent:#b54708; --accent-ink:#fff; --tint:#ffead8;
+  --error:#b43d30;
+  accent-color:var(--accent);
+}
+@media(prefers-color-scheme:dark) {
+  :root,:host {
+    --bg:#181715; --surface:#24211e; --card:var(--surface);
+    --rail:#201d1a; --field:#1c1a17;
+    --fg:#f5efe8; --text:var(--fg); --muted:#bcb0a3; --border:#53483d;
+    --accent:#ffad73; --accent-ink:#29170b; --tint:#3c2a1e;
+    --error:#ffaaa0;
+  }
+}
+.primary,.upload-button,
+button.primary:hover:not(:disabled),.file-button.primary:hover {
+  color:var(--accent-ink);
+}
+a {color:var(--accent)}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible {
+  outline:2px solid var(--accent);outline-offset:2px;
+}

@@ -12376,6 +12376,7 @@ const twpLang = (function () {
     forPageTranslation = false,
   ) {
     lang = twpLang.fixTLanguageCode(lang);
+    if (serviceName === "openai") return "openai";
     if (!twpLang.SupportedLanguages[serviceName]) return null;
     if (
       forPageTranslation &&

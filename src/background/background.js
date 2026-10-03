@@ -852,14 +852,15 @@ twpConfig.onReady(() => {
 
       function updateIcon(tabId) {
         chrome.tabs.get(tabId, (tabInfo) => {
-          const incognito = tabInfo ? tabInfo.incognito : false;
+          // Navigation/close can race a pending icon or badge update.
+          if (chrome.runtime.lastError || !tabInfo) return;
 
           if (chrome.pageAction) {
             resetPageAction(tabId);
             chrome.pageAction.setIcon({
               tabId: tabId,
-              path: getSVGIcon(incognito),
-            });
+              path: "/icons/reading.png",
+            }, checkedLastError);
 
             if (twpConfig.get("showButtonInTheAddressBar") == "no") {
               chrome.pageAction.hide(tabId);
@@ -875,13 +876,16 @@ twpConfig.onReady(() => {
             ) {
               chrome.action.setIcon({
                 tabId: tabId,
-                path: "/icons/icon-32-translated.png",
-              });
+                path: "/icons/reading.png",
+              }, checkedLastError);
+              chrome.action.setBadgeText({ tabId, text: "✓" }, checkedLastError);
+              chrome.action.setBadgeBackgroundColor({ tabId, color: "#397cf6" }, checkedLastError);
             } else {
               chrome.action.setIcon({
                 tabId: tabId,
-                path: "/icons/icon-32.png",
-              });
+                path: "/icons/reading.png",
+              }, checkedLastError);
+              chrome.action.setBadgeText({ tabId, text: "" }, checkedLastError);
             }
           }
         });

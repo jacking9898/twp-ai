@@ -11,6 +11,7 @@ function getTabHostName() {
 
 void (async function () {
   await twpConfig.onReady();
+  if (!platformInfo.isMobile.any && twpConfig.get("showFloatingButton") === "yes") return;
   if (
     !platformInfo.isMobile.any &&
     twpConfig.get("showMobilePopupOnDesktop") !== "yes"

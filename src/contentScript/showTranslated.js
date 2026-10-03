@@ -738,6 +738,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
 
   function updateEventListener() {
     if (
+      (typeof twpInteractiveTranslator !== "undefined" && twpInteractiveTranslator.available) ||
       platformInfo.isMobile.any ||
       pageLanguageState == "translated" ||
       !(

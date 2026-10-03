@@ -6,14 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="/w3css/4/w3.css" />
   <link rel="stylesheet" href="old-popup.css" />
-</head>
+<link rel="stylesheet" href="/lib/brandTheme.css"></head>
 
 <body>
   <main>
+    <p data-translation-status role="status" aria-live="polite" hidden style="margin-right: 65px; font-size: 13px;"></p>
     <div class="w3-display-topright">
       <div style="display: flex">
-        <div class="w3-hover-light-grey" id="btnPatreon" title="patreon" data-i18n-title="lblMakeDonation">
-          <i class="gg-heart" style="scale: 0.85"></i>
+        <div class="w3-hover-light-grey" id="btnProject" title="About 页渡 · Yedu" data-i18n-title="lblAboutProject">
+          <span aria-hidden="true" style="font-size:18px;font-weight:bold">ⓘ</span>
         </div>
         <div class="w3-hover-light-grey" id="btnSwitchInterfaces" title="Switch between simple and complex interface"
           data-i18n-title="swapPopup">
@@ -101,7 +102,7 @@
               More options
             </option>
             <option value="translatePDF" data-i18n="msgTranslatePDF">Translate PDF</option>
-            <option value="donate" data-i18n="btnDonate">Donate</option>
+            <option value="about" data-i18n="lblAboutProject">About 页渡 · Yedu</option>
           </select>
           <div id="btnOptionB" style="
                 display: inline;
@@ -114,6 +115,14 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <div style="margin-top: 12px;">
+      <label for="pageTranslationMode" data-i18n="lblPageTranslationMode">Page display</label>
+      <select id="pageTranslationMode" data-translation-mode class="w3-select w3-border w3-round">
+        <option value="bilingual" data-i18n="msgBilingualMode">Original + translation</option>
+        <option value="translated" data-i18n="msgTranslatedMode">Translation only</option>
+      </select>
     </div>
 
     <div id="divShowTranslateSelectedButton" style="display: none;">
@@ -135,6 +144,7 @@
   <script src="/lib/languages.js"></script>
   <script src="/lib/config.js"></script>
   <script src="/lib/i18n.js"></script>
+  <script src="/lib/translationMode.js"></script>
   <script src="old-popup.js"></script>
 </body>
 

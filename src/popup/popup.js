@@ -241,7 +241,11 @@ twpConfig
     );
 
     function updateInterface() {
-      if (currentPageTranslatorService == "yandex") {
+      if (currentPageTranslatorService == "openai") {
+        $("#iconTranslate").setAttribute("src", "/icons/reading.png");
+        $("#iconTranslate").style.width = "32px";
+        $("#iconTranslate").style.height = "32px";
+      } else if (currentPageTranslatorService == "yandex") {
         $("#btnOptions option[value='translateInExternalSite']").textContent =
           twpI18n.getMessage("msgOpenOnYandexTranslator");
         $("#iconTranslate").setAttribute(
@@ -406,8 +410,8 @@ twpConfig
         break;
     }
 
-    $("#btnPatreon").onclick = (e) => {
-      window.open("https://www.patreon.com/filipeps", "_blank");
+    $("#btnProject").onclick = (e) => {
+      tabsCreate(chrome.runtime.getURL("/options/options.html#about"));
     };
 
     $("#btnSwitchInterfaces").addEventListener("click", () => {
@@ -694,9 +698,9 @@ twpConfig
             case "moreOptions":
               tabsCreate(chrome.runtime.getURL("/options/options.html"));
               break;
-            case "donate":
+            case "about":
               tabsCreate(
-                chrome.runtime.getURL("/options/options.html#donation")
+                chrome.runtime.getURL("/options/options.html#about")
               );
               break;
             case "translatePDF":
@@ -733,7 +737,6 @@ twpConfig
             "✔ " + textAlways;
         }
 
-        $("option[data-i18n=btnDonate]").innerHTML += " &#10084;";
       }
     );
   });

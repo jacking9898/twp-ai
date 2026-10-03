@@ -1,4 +1,19 @@
 {
+  "msgBilingualTranslationFailed": {
+    "message": "未能完成翻譯。可點擊翻譯服務圖示切換引擎後重試；剛安裝或更新擴充功能，請先重新整理網頁。"
+  },
+  "msgRefreshPageForTranslation": {
+    "message": "無法連接此頁面。安裝或重新載入擴充功能後，請重新整理網頁再試。"
+  },
+  "lblPageTranslationMode": {
+    "message": "網頁顯示方式"
+  },
+  "msgBilingualMode": {
+    "message": "雙語對照（原文 + 譯文）"
+  },
+  "msgTranslatedMode": {
+    "message": "僅顯示譯文"
+  },
   "extensionDescription": {
     "message": "使用 Google 或 Yandex 即時翻譯您的網頁。"
   },
@@ -596,5 +611,11 @@
   },
   "btnChangePosition": {
     "message": "更改位置"
+  },
+  "extensionDescriptionAI": {
+    "message": "網頁雙語翻譯、文字多模型比較、自訂 AI 專家與術語庫。"
+  },
+  "lblAboutProject": {
+    "message": "關於 页渡 · Yedu"
   }
 }

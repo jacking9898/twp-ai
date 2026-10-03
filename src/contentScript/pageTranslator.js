@@ -248,6 +248,13 @@ function backgroundTranslateHTML(
   sourceArray2d,
   dontSortResults
 ) {
+  if (translationService === "openai") {
+    const lengths = sourceArray2d.map(row => row.length);
+    return twpAIClient.translate(sourceArray2d.flat(), targetLanguage, document.title).then(results => {
+      let offset = 0;
+      return lengths.map(length => results.slice(offset, offset += length));
+    });
+  }
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
@@ -323,7 +330,7 @@ function getTabHostName() {
   );
 }
 
-Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
+pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   const tabHostName = _[1];
   // "sup" não será traduzido https://github.com/FilipePS/Traduzir-paginas-web/issues/647
   /* prettier-ignore */
@@ -372,16 +379,29 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
       case "dontSortResults":
         dontSortResults = newvalue == "yes" ? true : false;
         break;
+      case "pageTranslationMode":
+      case "translateDynamicallyCreatedContent":
+        if (pageLanguageState !== "original") {
+          pageTranslator.translatePage(currentTargetLanguage);
+        }
+        break;
+      case "pageTranslatorService":
+        pageTranslator.swapTranslationService(newvalue);
+        break;
+      case "aiActiveProfile":
+      case "aiCustomExperts":
+      case "aiCustomGlossaries":
+      case "aiTranslationSettings":
+        if (currentPageTranslatorService === "openai" && pageLanguageState !== "original") {
+          pageTranslator.translatePage(currentTargetLanguage);
+        }
+        break;
+      case "targetLanguage":
+        currentTargetLanguage = newvalue;
+        if (pageLanguageState !== "original") pageTranslator.translatePage(newvalue);
+        break;
     }
   });
-
-  //TODO FOO
-  if (
-    twpConfig.get("useOldPopup") == "yes" ||
-    twpConfig.get("popupPanelSection") <= 1
-  ) {
-    twpConfig.set("targetLanguage", twpConfig.get("targetLanguages")[0]);
-  }
 
   // Pieces are a set of nodes separated by inline tags that form a sentence or paragraph.
   let piecesToTranslate = [];
@@ -1094,6 +1114,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
     }
     if (document.title.trim().length < 1) return;
     originalPageTitle = document.title;
+    const currentFooCount = fooCount;
 
     backgroundTranslateSingleText(
       currentPageTranslatorService,
@@ -1101,7 +1122,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
       currentTargetLanguage,
       originalPageTitle
     ).then((result) => {
-      if (result) {
+      if (result && pageLanguageState === "translated" && currentFooCount === fooCount) {
         document.title = result;
       }
     });
@@ -1112,13 +1133,28 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   pageTranslator.onPageLanguageStateChange = function (callback) {
     pageLanguageStateObservers.push(callback);
   };
+  pageTranslator.getState = () => pageLanguageState;
+  pageTranslator.getService = () => currentPageTranslatorService;
+  pageTranslator.getError = () => pageTranslator.lastError || "";
+
+  function setPageLanguageState(state) {
+    pageLanguageState = state;
+    chrome.runtime.sendMessage({ action: "setPageLanguageState", pageLanguageState }, checkedLastError);
+    pageLanguageStateObservers.forEach(callback => callback(pageLanguageState));
+    if (state === "translated" && currentPageTranslatorService === "openai" && window === window.top && typeof twpAIClient !== "undefined") {
+      void twpAIClient.call({action: "aiRememberPage", targetLanguage: currentTargetLanguage}).catch(() => {});
+    }
+  }
 
   var translationRoutine_handler = null;
 
-  pageTranslator.translatePage = function (targetLanguage) {
+  pageTranslator.translatePage = function (targetLanguage, options = {}) {
     fooCount++;
-    pageTranslator.restorePage();
-    showOriginal.enable();
+    pageTranslator.restorePage(true);
+    pageTranslator.lastError = "";
+    const bilingual = (twpConfig.get("pageTranslationMode") === "bilingual" || currentPageTranslatorService === "openai") &&
+      location.hostname !== "pdf.translatewebpages.org";
+    if (!bilingual) showOriginal.enable();
     chrome.runtime.sendMessage(
       { action: "removeTranslationsWithError" },
       checkedLastError
@@ -1143,47 +1179,70 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
       document.getElementById("scaleSelect").dispatchEvent(new Event("change"));
     }
 
-    piecesToTranslate = getPiecesToTranslate();
-    attributesToTranslate = getAttributesToTranslate();
+    if (!bilingual) {
+      piecesToTranslate = getPiecesToTranslate();
+      attributesToTranslate = getAttributesToTranslate();
+    }
 
-    pageLanguageState = "translated";
-    chrome.runtime.sendMessage(
-      {
-        action: "setPageLanguageState",
-        pageLanguageState,
-      },
-      checkedLastError
-    );
-    pageLanguageStateObservers.forEach((callback) =>
-      callback(pageLanguageState)
-    );
+    setPageLanguageState(bilingual ? "translating" : "translated");
     currentPageLanguage = currentTargetLanguage;
 
-    translatePageTitle();
-
-    enableMutatinObserver();
-
-    translationRoutine();
+    if (bilingual) {
+      bilingualTranslator.start({
+        requestTimeout: currentPageTranslatorService === "openai" ? 65000 : 30000,
+        maxAttempts: currentPageTranslatorService === "openai" ? 1 : 3,
+        onError: message => { pageTranslator.lastError = message; },
+        onStateChange: setPageLanguageState,
+        targetLanguage: currentTargetLanguage,
+        dynamicContent: twpConfig.get("translateDynamicallyCreatedContent") === "yes",
+        translate: async (source) => {
+          // Failed provider responses are cached by TWP in memory. Clear them
+          // before retrying so a temporary outage can actually recover.
+          chrome.runtime.sendMessage({ action: "removeTranslationsWithError" }, checkedLastError);
+          // Translate each whole paragraph so inline markup does not dictate
+          // the word order of the translation.
+          const paragraphs = source.map(nodes => nodes.join(""));
+          if (currentPageTranslatorService === "openai") {
+            return (await twpAIClient.translate(paragraphs, currentTargetLanguage, document.title, "page", options)).map(text => [text]);
+          }
+          const results = await backgroundTranslateHTML(
+            currentPageTranslatorService, currentSourceLanguage, currentTargetLanguage,
+            paragraphs.map(text => [filterKeywordsInText(
+              text, customDictionary, currentPageTranslatorService
+            )]), false
+          );
+          if (!Array.isArray(results)) return results;
+          return Promise.all(results.map(async (paragraph, i) => {
+            if (!Array.isArray(paragraph) || !paragraph.length) {
+              throw new Error("Missing paragraph translation");
+            }
+            return [await handleCustomWords(
+              paragraph.join(" "), paragraphs[i], customDictionary, currentPageTranslatorService,
+              currentSourceLanguage, currentTargetLanguage
+            )];
+          }));
+        },
+      });
+    } else {
+      translatePageTitle();
+      enableMutatinObserver();
+      translationRoutine();
+    }
   };
 
-  pageTranslator.restorePage = function () {
+  pageTranslator.restorePage = function (keepRecent = false) {
+    if (!keepRecent && window === window.top && typeof twpAIClient !== "undefined") {
+      void twpAIClient.call({action: "aiForgetPage"}).catch(() => {});
+    }
     fooCount++;
     piecesToTranslate = [];
+    bilingualTranslator.stop();
+    if (typeof twpAIClient !== "undefined") twpAIClient.cancel("page");
 
     showOriginal.disable();
     disableMutatinObserver();
 
-    pageLanguageState = "original";
-    chrome.runtime.sendMessage(
-      {
-        action: "setPageLanguageState",
-        pageLanguageState,
-      },
-      checkedLastError
-    );
-    pageLanguageStateObservers.forEach((callback) =>
-      callback(pageLanguageState)
-    );
+    setPageLanguageState("original");
     currentPageLanguage = originalTabLanguage;
 
     if (originalPageTitle) {
@@ -1216,7 +1275,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
 
   pageTranslator.swapTranslationService = function (newServiceName) {
     currentPageTranslatorService = newServiceName;
-    if (pageLanguageState === "translated") {
+    if (pageLanguageState !== "original") {
       pageTranslator.translatePage();
     }
   };
@@ -1225,7 +1284,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
     currentPageTranslatorService = info.pageTranslatorService;
     dontSortResults = info.dontSortResults === "yes" ? true : false;
     currentSourceLanguage = info.sourceLanguage;
-    if (pageLanguageState === "translated") {
+    if (pageLanguageState !== "original") {
       pageTranslator.translatePage(info.targetLanguage);
     }
   };
@@ -1266,7 +1325,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
     } else if (request.action === "swapTranslationService") {
       pageTranslator.swapTranslationService(request.newServiceName);
     } else if (request.action === "toggle-translation") {
-      if (pageLanguageState === "translated") {
+      if (pageLanguageState === "translated" || pageLanguageState === "translating") {
         pageTranslator.restorePage();
       } else {
         pageTranslator.translatePage();
@@ -1475,4 +1534,12 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
       pageTranslator.translatePage();
     }
   });
+  if (window === window.top && typeof twpAIClient !== "undefined") {
+    const initialGeneration = fooCount;
+    void twpAIClient.call({action: "aiRecallPage"}).then(recent => {
+      if (recent.targetLanguage && initialGeneration === fooCount && pageLanguageState === "original" && currentPageTranslatorService === "openai" && !twpConfig.get("neverTranslateSites").includes(location.hostname)) {
+        pageTranslator.translatePage(recent.targetLanguage);
+      }
+    }).catch(() => {});
+  }
 });

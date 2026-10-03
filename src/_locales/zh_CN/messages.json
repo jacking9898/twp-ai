@@ -1,4 +1,19 @@
 {
+  "msgBilingualTranslationFailed": {
+    "message": "未能完成翻译。可点击翻译服务图标切换引擎后重试；刚安装或更新扩展，请先刷新网页。"
+  },
+  "msgRefreshPageForTranslation": {
+    "message": "无法连接此页面。安装或重新加载扩展后，请刷新网页再试。"
+  },
+  "lblPageTranslationMode": {
+    "message": "网页显示方式"
+  },
+  "msgBilingualMode": {
+    "message": "双语对照（原文 + 译文）"
+  },
+  "msgTranslatedMode": {
+    "message": "仅显示译文"
+  },
   "extensionDescription": {
     "message": "使用 Google 或 Yandex 实时翻译您的页面。"
   },
@@ -596,5 +611,11 @@
   },
   "btnChangePosition": {
     "message": "改变位置"
+  },
+  "extensionDescriptionAI": {
+    "message": "网页双语翻译、文本多模型对比、自定义 AI 专家与术语库。"
+  },
+  "lblAboutProject": {
+    "message": "关于 页渡 · Yedu"
   }
 }

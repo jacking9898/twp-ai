@@ -1,100 +1,114 @@
 "use strict";
 
 (function () {
-  let creating; // A global promise to avoid concurrency issues
-  async function setupOffscreenDocument(path) {
-    if (!("offscreen" in chrome)) {
-      return;
-    }
-    // Check all windows controlled by the service worker to see if one
-    // of them is the offscreen document with the given path
-    const offscreenUrl = chrome.runtime.getURL(path);
-    const existingContexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT'],
-      documentUrls: [offscreenUrl]
-    });
-  
-    if (existingContexts.length > 0) {
-      return;
-    }
-  
-    // create offscreen document
-    if (creating) {
-      await creating;
-    } else {
-      creating = chrome.offscreen.createDocument({
-        url: path,
-        reasons: ['AUDIO_PLAYBACK'],
-        justification: 'Enable text-to-speech functionality on any website.',
+  const documentPath = "off_screen.html";
+  let creating;
+
+  async function hasAudioDocument() {
+    // Firefox loads the audio implementation in its persistent background page.
+    if (!chrome.offscreen) return typeof textToSpeech !== "undefined";
+    const url = chrome.runtime.getURL(documentPath);
+    if (chrome.runtime.getContexts) {
+      const contexts = await chrome.runtime.getContexts({
+        contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [url],
       });
+      return contexts.length > 0;
+    }
+    return (await clients.matchAll()).some(client => client.url === url);
+  }
+
+  async function setupAudioDocument() {
+    if (await hasAudioDocument()) return;
+    if (!chrome.offscreen) throw new Error("Audio playback is not available in this browser");
+    if (!creating) {
+      creating = chrome.offscreen.createDocument({
+        url: documentPath,
+        reasons: ["AUDIO_PLAYBACK"],
+        justification: "Enable text-to-speech functionality on any website.",
+      });
+    }
+    try {
       await creating;
+    } finally {
+      // A failed creation must not prevent the next playback attempt.
       creating = null;
     }
   }
 
+  async function sendToAudio(message) {
+    if (!chrome.offscreen && typeof textToSpeech !== "undefined") {
+      const service = message.action.startsWith("offscreen_bing_")
+        ? textToSpeech.bingService : textToSpeech.googleService;
+      if (message.action.endsWith("_ttsSpeed")) return service.setAudioSpeed(message.speed);
+      if (message.action.endsWith("_ttsVolume")) return service.setAudioVolume(message.volume);
+      if (message.action.endsWith("_stopAll")) return service.stopAll();
+      return service.textToSpeech(message.text, message.targetLanguage);
+    }
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(message, response => {
+        const error = chrome.runtime.lastError;
+        if (error || response?.error) reject(new Error(error?.message || response.error));
+        else resolve(response);
+      });
+    });
+  }
 
-  // Listen for messages coming from contentScript or other scripts.
+  async function syncSettings() {
+    await Promise.all(["google", "bing"].flatMap(service => [
+      sendToAudio({ action: `offscreen_${service}_ttsSpeed`, speed: twpConfig.get("ttsSpeed") }),
+      sendToAudio({ action: `offscreen_${service}_ttsVolume`, volume: twpConfig.get("ttsVolume") }),
+    ]));
+  }
+
+  function handleIdleError(error) {
+    // The audio document can close between the existence check and the message.
+    if (!/Receiving end does not exist|message port closed|message channel closed/i.test(error.message)) {
+      console.error("TWP audio settings failed", error);
+    }
+  }
+
+  async function syncSettingsIfOpen() {
+    if (await hasAudioDocument()) await syncSettings();
+  }
+
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "textToSpeech") {
-      setupOffscreenDocument('off_screen.html')
-        .then(() => {
-          if (twpConfig.get("textToSpeechService") === "bing") {
-            chrome.runtime.sendMessage({ action: "offscreen_bing_textToSpeech", text: request.text, targetLanguage: request.targetLanguage }, 
-              (response) => {
-                sendResponse();
-              });
-          } else {
-            chrome.runtime.sendMessage({ action: "offscreen_google_textToSpeech", text: request.text, targetLanguage: request.targetLanguage }, 
-              (response) => {
-                sendResponse();
-              });
-          }
-        });
-
+      (async () => {
+        await twpConfig.onReady();
+        await setupAudioDocument();
+        // Settings may have changed while no audio document existed.
+        await syncSettings();
+        const service = twpConfig.get("textToSpeechService") === "bing" ? "bing" : "google";
+        return sendToAudio({ action: `offscreen_${service}_textToSpeech`,
+          text: request.text, targetLanguage: request.targetLanguage });
+      })().then(() => sendResponse(), error => {
+        console.warn("TWP audio playback failed", error);
+        sendResponse({ error: error.message });
+      });
       return true;
     } else if (request.action === "stopAudio") {
-      setupOffscreenDocument('off_screen.html')
-        .then(() => {
-          chrome.runtime.sendMessage({ action: "offscreen_google_stopAll" });
-          chrome.runtime.sendMessage({ action: "offscreen_bing_stopAll" });
-          // return chrome.offscreen.closeDocument();
-        });
+      (async () => {
+        if (creating) await creating;
+        // Stopping unused audio must not create an offscreen document.
+        if (!await hasAudioDocument()) return;
+        await Promise.all(["google", "bing"].map(service =>
+          sendToAudio({ action: `offscreen_${service}_stopAll` })));
+      })().then(() => sendResponse(), error => {
+        handleIdleError(error);
+        sendResponse();
+      });
+      return true;
     }
   });
 
-  // Listen for changes to the audio speed setting and apply it immediately.
-  twpConfig.onReady(async () => {
-    twpConfig.onChanged((name, newvalue) => {
-      if (name === "ttsSpeed") {
-        chrome.runtime.sendMessage({ action: "offscreen_google_ttsSpeed", speed: newvalue });
-        chrome.runtime.sendMessage({ action: "offscreen_bing_ttsSpeed", speed: newvalue });
-      } else if (name === "ttsVolume") {
-        chrome.runtime.sendMessage({ action: "offscreen_google_ttsVolume", volume: newvalue });
-        chrome.runtime.sendMessage({ action: "offscreen_bing_ttsVolume", volume: newvalue });
-      } else if (name === "proxyServers") {
-        // const proxyServers = newvalue;
-        // if (proxyServers?.google?.ttsServer) {
-        //   const url = new URL(googleService.baseURL);
-        //   url.host = proxyServers.google.ttsServer;
-        //   googleService.baseURL = url.toString();
-        // } else {
-        //   const url = new URL(googleService.baseURL);
-        //   url.host = "translate.google.com";
-        //   googleService.baseURL = url.toString();
-        // }
+  twpConfig.onReady(() => {
+    twpConfig.onChanged(name => {
+      if (name === "ttsSpeed" || name === "ttsVolume") {
+        syncSettingsIfOpen().catch(handleIdleError);
       }
     });
-
-    chrome.runtime.sendMessage({ action: "offscreen_google_ttsSpeed", speed: twpConfig.get("ttsSpeed") });
-    chrome.runtime.sendMessage({ action: "offscreen_bing_ttsSpeed", speed: twpConfig.get("ttsSpeed") });
-    chrome.runtime.sendMessage({ action: "offscreen_google_ttsVolume", volume: twpConfig.get("ttsVolume") });
-    chrome.runtime.sendMessage({ action: "offscreen_bing_ttsVolume", volume: twpConfig.get("ttsVolume") });
-
-    // const proxyServers = twpConfig.get("proxyServers");
-    // if (proxyServers?.google?.ttsServer) {
-    //   const url = new URL(googleService.baseURL);
-    //   url.host = proxyServers.google.ttsServer;
-    //   googleService.baseURL = url.toString();
-    // }
+    // On worker startup there is usually no receiver. Defer settings until
+    // playback, but resync an existing document after a worker restart.
+    syncSettingsIfOpen().catch(handleIdleError);
   });
 })();

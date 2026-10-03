@@ -1,68 +1,127 @@
+<p align="center"><img src="src/icons/reading.png" width="96" alt="页渡 · Yedu"></p>
 
-# <img src="https://github.com/FilipePS/Traduzir-paginas-web/blob/master/src/icons/icon-128.png" height="50"> Translate Web Pages
+# 页渡 · Yedu
 
-Translate your page in real time using Google, Bing or Yandex.
+**一页一渡，读懂彼岸。** 网页与 PDF 双语翻译工具。
 
-[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/FilipePS/Traduzir-paginas-web?label=latest%20version&sort=semver)](https://github.com/FilipePS/Traduzir-paginas-web/releases)
-[![GitHub release date](https://img.shields.io/github/release-date/FilipePS/Traduzir-paginas-web?labely)](https://github.com/FilipePS/Traduzir-paginas-web/latest)
-[![GitHub issues](https://img.shields.io/github/issues/FilipePS/Traduzir-paginas-web?color=red)](https://github.com/FilipePS/Traduzir-paginas-web/issues)
-[![GitHub license](https://img.shields.io/github/license/FilipePS/Traduzir-paginas-web?color=lightgrey)](https://github.com/FilipePS/Traduzir-paginas-web/blob/master/LICENSE)
+**简体中文** · [English](README.en.md)
 
-## Install
+保留原文阅读网页，用多个翻译服务对比文本，并为自己的 AI 模型配置专家、风格和术语。
 
-### Firefox
-- Desktop users, download from [Mozilla Addons](https://addons.mozilla.org/firefox/addon/traduzir-paginas-web/).
-- Android users
-  1. Install the latest version of _Firefox (v120+)_.
-  2. Open the extension manager.
-  3. Scroll down and click **Find more add-ons**.
-  4. On the add-ons website, search for **TWP**.
-  5. Install the **TWP - Translate For Mobile** extension.
+**页渡 · Yedu 是 [TWP — Translate Web Pages](https://github.com/FilipePS/Traduzir-paginas-web) 的独立 fork，由 jacking9898 维护。** 感谢 FilipePS 和上游贡献者。本项目不代表上游或沉浸式翻译，二者的商店版本、账户和付费服务不属于本项目。
 
-### Chrome, Edge and Brave
-- The extension will be officially released for these browsers in the future.
-- If you installed the extension in these browsers previously through a registry modification, please undo those changes.\
-Note: If you want to undo registry changes, download and run this [twp-registry-uninstall-self.reg](https://raw.githubusercontent.com/FilipePS/Traduzir-paginas-web/master/dist/chromium/twp-registry-uninstall-self.reg). If you want a deeper removal download and run this other file [twp-registry-uninstall-all.reg](https://raw.githubusercontent.com/FilipePS/Traduzir-paginas-web/master/dist/chromium/twp-registry-uninstall-all.reg)
+[下载与版本记录](https://github.com/jacking9898/twp-ai/releases) · [反馈问题](https://github.com/jacking9898/twp-ai/issues) · [隐私政策](PRIVACY.md) · [构建说明](build-instructions.md)
 
-## Screenshots
-| Menu 1 | Menu 2 | Translated |
-| :--: | :--: | :--: |
-| <img src="https://addons.mozilla.org/user-media/previews/full/258/258434.png" height="200"> | <img src="https://addons.mozilla.org/user-media/previews/full/258/258435.png" height="200"> | <img src="https://addons.mozilla.org/user-media/previews/full/258/258436.png" height="200"> |
+## 项目性质与免责声明
 
-## Contribute
+**这是一个个人 Vibe Coding 项目**：维护者在开源项目基础上，借助 AI 辅助编写、修改和调试代码，用于个人学习、实验与交流。功能持续迭代，现有测试无法覆盖所有网页、文档和服务组合，可能存在未发现的错误或兼容性问题。
 
-- To collaborate with the translation of the extension interface use [Crowdin](https://crowdin.com/project/translate-web-pages).
+项目按现状提供，不承诺翻译结果完全准确、服务持续可用或适合某一特定用途。重要内容请对照原文核验，使用前请备份重要文件和配置；自行接入的 API 费用及服务限制以对应服务商为准。发送给翻译服务的数据与本地存储方式见 [隐私政策](PRIVACY.md)。
 
-## Donations
+本 fork 的修改由本项目维护者维护，不代表上游作者或第三方服务商的发布、认可或担保。Vibe Coding 的开发方式不改变原有代码和数据的许可及署名要求；本说明不替代 [LICENSE](LICENSE) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
-To make a donation use [Patreon](https://www.patreon.com/filipeps).
+## 能做什么
 
-[<img src="https://github.com/FilipePS/Traduzir-paginas-web/blob/master/src/icons/patreon.png" alt="Patreon" height="50">](https://www.patreon.com/filipeps)
+| 功能 | 当前能力 |
+| --- | --- |
+| 网页翻译 | 段落双语对照、恢复原文；尽量保留链接、代码、公式和原网页交互 |
+| 翻译服务 | 谷歌、微软、Yandex；使用自己的 OpenAI 兼容 API 服务 |
+| 文本对比 | 输入或粘贴文本，默认选中三个无需本扩展 API Key 的服务；可另选多个已配置的 AI 模型 |
+| 双语结果 | 原文与译文按段对应，支持仅译文、复制、TXT 导出及单个服务重试 |
+| 文档与侧边栏 | PDF 左侧原件、右侧译文，支持当前页 / 全文翻译和 TXT 导出；TXT 文档、SRT / VTT 字幕，也可打开独立工作台 |
+| AI 本地缓存 | 自带 AI 服务的成功译文保存到本机，默认 7 天；支持调整时长、清空、关闭和强制重新翻译 |
+| 专家与风格 | 44 个可查看和另存的专家预设，10 种风格；支持新建、编辑和删除自定义专家 |
+| 术语 | 31 个术语库、3,634 条语言版本配置（已去掉 6 个游戏库）和自定义术语库；目标语言匹配、命中词筛选、个人术语优先 |
+| 网页交互 | 悬浮工具栏、控制面板、鼠标悬停和划词翻译设置 |
 
-## FAQ
+专家、风格和 AI 术语参数仅作用于 AI 模型。传统翻译服务使用各自的翻译逻辑。免费服务的连通性和限流由服务商决定，本项目不承诺无限额度；自带 API 的费用由你与服务商结算。
 
-**What can this extension do?**
+目前本地文档翻译支持 **有文字层的 PDF、TXT、SRT、VTT**。PDF 原件保留版式，译文按原文文字区域定位并自动增高，可切换原文＋译文并导出 TXT；不生成重排后的译文 PDF。扫描件 OCR、圈选识别、视频实时字幕及 EPUB / DOCX 尚未实现。复杂多栏、公式和表格的文字提取顺序可能需要对照原件阅读。旧版弹窗的外部 PDF 入口会打开第三方网页，其文件处理规则独立于本扩展。
 
-Your current page is translated without having to open new tabs.
-It is possible to change the translation language.
-You can select to automatically translate.
-To change the translation engine just touch the Google Translate icon. 
+## 安装（Chrome / Edge）
 
-**Why do you need to access your data on all the websites you visit?**
+当前仓库准备的是 `0.1.0` 首个独立版本，未提供本项目的官方浏览器商店链接。
 
-To translate any website it is necessary to access and modify the text of the web pages. And the extension can only do that, with that permission.
+1. 在 Releases 中选择已发布的 `Yedu_<版本>_Chromium_MV3.zip`；如果还没有 Release，按下方说明从源码构建。
+2. 将 ZIP 解压到固定目录。
+3. 打开 `chrome://extensions` 或 `edge://extensions`，启用开发者模式。
+4. 点击「加载已解压的扩展程序」，选择包含 `manifest.json` 的目录。
+5. 刷新需要翻译的网页，点击扩展图标或网页上的双语图标。
 
-**How are the pages translated?**
+请加载构建后的目录，而不是直接加载仓库根目录或 `src`。同时启用多个网页翻译扩展可能导致重复翻译。浏览器内部页和部分受保护页面不允许扩展注入。
 
-The pages are translated using the Google or Yandex translation engine (you choose).
+从开发版迁移时，如果加载目录改变，浏览器可能把它识别为新的扩展。请先保留旧扩展并导出普通设置，确认新版本可用后再移除旧版本；AI Key 不随普通设置导出，需要重新填写。
 
-**And how's my privacy?**
+Firefox 提供单独的构建 ZIP，当前作为实验性构建；尚未完成同等覆盖的浏览器实测或商店签名。可通过 `about:debugging` 临时加载其中的 `manifest.json`，正式安装需另行完成签名发布。它使用独立 ID `twp-ai@jacking9898`，不会接管上游插件的更新。
 
-[Privacy policy](https://addons.mozilla.org/addon/traduzir-paginas-web/privacy/): We do not collect any information. However, to translate, the contents of the web pages will be sent to Google or Yandex servers.
+## 开始使用
 
-**Limitations**
+- **网页**：点击悬浮翻译图标切换翻译；上方四格按钮打开侧边栏，下方按钮打开控制面板。
+- **文本对比**：打开文本工作台，粘贴文字，源语言默认自动检测，也可手动选择；选择目标语言和翻译服务，再点击翻译。单个服务失败时可独立重试。
+- **自己的模型**：进入「模型与术语设置」，填写服务名称、Base URL、模型 ID 和 API Key，保存并测试连接。支持 HTTPS API，以及用于本机模型服务的 localhost HTTP。
+- **专家与术语**：在同一设置页选择内置预设或新建配置；内置项修改后另存为个人配置。术语每行一条，例如 `feature engineering = 特征工程`。
+- **PDF**：在文档工作台选择 PDF（最多 50 MB / 2000 页），会自动打开独立的 PDF 阅读标签页。左侧原件、右侧译文默认同步滚动，按对应页面和段落跟随；译文加载后会重新对齐阅读位置。关闭工具栏「同步滚动」可分别滚动，选择会保留；点击左侧文字块会定位并高亮右侧对应译文，目录和页码跳转则定位两侧页面。支持缩放，大文件按阅读位置加载画布。统一按文字层坐标保留页眉、页码、标题、正文和边注位置，右侧显示译文；译文保持设定字号并自动增高，后续同栏段落和公式向下顺延，页面可变长，不再裁切正文；左右按对应段落同步定位，不强求相同纵坐标。点击「显示原文＋译文」按钮开启后，每个文字块原文在上、译文在下；关闭后只显示译文。该选择会记住，切换无需重新请求翻译，公式不重复显示。修复边注打断正文提取，以及行内上标、下标被拆为独立文字框的问题。已识别的独立公式和矩阵保留原 PDF 图形，按需在本机渲染，不发送给翻译服务；TXT 导出保留公式提示，不包含图像。识别采用文字层和数学字体启发式。可识别的行内上下标表达式先保护、翻译后恢复，并以真正的上下标显示；若服务破坏保护标记，会仅翻译周围正文。此处理适用于传统服务与自定义 AI，TXT 保留文字表示。复杂行内公式、表格、图片与原字体尚不能完整重排。默认开启「滚动自动翻译」：打开后翻译首页，滚动或跳转后停留约 0.65 秒翻译当前页；快速经过的页面不会逐页排队，已完成页面直接复用。按钮高亮并标注开启 / 关闭，可点击关闭并记住选择，使用顶部「翻译当前页 / 翻译全文」或右侧「翻译本页」手动翻译。取消会同时关闭自动翻译并保留已完成页面，失败页需手动重试。右侧可显示双语或仅译文，下载按钮导出已完成页面的 TXT，部分结果文件名带 `partial`。刷新或重开阅读器需重新选择文件；同一文件的 AI 翻译缓存仍可复用。TXT 上限为 200 KB / 100,000 字符。
+- **PDF 工具栏**：Text 可选择复制原文或添加文字批注，Draw 支持自由绘制、删除和撤销。批注仅保留在本次阅读中，可下载 JSON 并导回同一 PDF，不会改写原文件。Style 可调整字体、字号、行距、段距、留白和首行缩进；隐藏顶部保留阅读工具栏。另有全文原文搜索、首尾页跳转、手形拖动、全屏和文档属性。左右独立滚动时可点击「查看当前页译文」定位结果。
+- **AI 用量与专属术语**：网页控制面板或 PDF 顶栏点击「AI 用量与术语」，查看本次打开页面 / 文件的 token（含重译与术语提取）、历史累计及近期批次；模型设置也可打开全部历史。统计从此功能启用后开始，缺失的 usage 显示未知，本地缓存命中不算新增 token，统计不等同于服务商账单。手动提取候选术语后可编辑、保存；网页按完整 URL、PDF 按文件内容指纹和目标语言隔离保存。PDF 当前页的词条归入整份文件，可换页继续补充；重命名仍可复用。提取最多使用当前快照前 16,000 字符，可能产生 API 费用；保存后用于后续 AI 请求，已有译文需手动重新翻译。
+- **AI 缓存**：网页控制面板可选缓存时长；「模型与术语设置 → AI 翻译缓存」可按小时设置（1–8760 小时）、关闭或清空。已翻译的同一标签页刷新后会恢复近期 AI 翻译；恢复原文后不再自动恢复，其他网址或新标签页不会因此自动翻译。PDF 自动翻译和手动翻译均优先复用匹配的 AI 缓存。需要新结果时点击「重新翻译（跳过缓存）」。
 
-Some pages like [support.mozilla.org](https://support.mozilla.org/) and [addons.mozilla.org](http://addons.mozilla.org/) will not be translated. For security reasons, the browser blocks extensions from accessing these sites.
+缓存按原文、上下文、源/目标语言、模型配置、专家、风格及实际使用的术语区分，最多保存 1000 组结果、约 20 MiB，过期或超限时清理。缓存关闭、无痕窗口和连接测试不读取或写入持久缓存；关闭缓存会删除已有结果。缓存命中无需再次发送文本；失效、缺失或主动重新翻译会发起请求。
 
-## Build instructions
-- You can see all the build instructions in the [build-instructions.md](build-instructions.md) file.
+默认数据就在仓库的 [builtinPresets.js](src/lib/builtinPresets.js)，并随扩展打包。41 个参考专家类别全部保留并重写提示词，另有 3 个本地基础专家；保留 30 个参考术语库，其中「访问控制」已扩展为「计算机科学」（简繁各 125 条），另增「LLM / AI」（简繁各 136 条）。其他参考库的条数及来源记录保持不变。游戏术语库已移除，游戏专家和个人配置保留。条数、空库及来源许可情况详见 [预设来源与导入](docs/public-presets.md)。
+
+## 隐私
+
+翻译时，相关文本会发送至你选中的服务；启用自动翻译后，符合规则的页面也会触发请求。多模型对比会分别发送到每个勾选的服务。
+
+AI Key 保存在当前浏览器扩展的独立 IndexedDB 中，不进入普通设置导出，也不会内置到发布包。它不属于额外加密的密码保险库。模型服务收到的信息、可选本地缓存、第三方 PDF 页面及权限用途见 [PRIVACY.md](PRIVACY.md)。
+
+## 从源码构建
+
+需要 Node.js **22.18+**（开发验证使用 Node.js 24）和 npm。
+
+```sh
+git clone https://github.com/jacking9898/twp-ai.git
+cd twp-ai
+npm ci
+npm run build
+npm run test:release
+```
+
+构建会重新生成 `build/`，产出 Chromium、Firefox 和可编辑源码三个 ZIP，以及 `SHA256SUMS.txt`。构建本身不发布、不上传、不使用个人 API Key。
+
+常用验证：
+
+```sh
+npm run test:ai
+npm run test:sidebar
+npm run test:pdf-cache
+npm run test:pdf-auto
+npm run test:pdf-tools
+npm run test:background
+npx playwright install chromium
+npm test
+```
+
+真实扩展回归、Windows Edge 测试环境与完整发布流程见 [构建说明](build-instructions.md) 和 [发布指南](docs/releasing.md)。
+
+## 贡献、许可与致谢
+
+欢迎通过本仓库的 Issue / Pull Request 反馈和贡献，参见 [贡献指南](CONTRIBUTING.md)。请勿在公开 Issue 中粘贴 API Key、个人配置导出或未脱敏网页。
+
+项目保留上游的 **[MPL-2.0](LICENSE)** 许可证和原有署名。本 fork 对 MPL 覆盖文件的修改继续按 MPL-2.0 提供；发布时应同时提供与安装包对应的可编辑源码。其他组件保留各自许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md) 和 [许可证全文](THIRD_PARTY_LICENSES.txt)。
+
+感谢以下开源项目的作者与贡献者提供基础代码和工具，本项目在这些工作的基础上继续开发：
+
+- [TWP — Translate Web Pages](https://github.com/FilipePS/Traduzir-paginas-web)：本项目的直接上游，提供网页翻译、服务集成、界面与本地化基础。特别感谢 FilipePS 和上游贡献者。
+- [Vercel AI SDK](https://github.com/vercel/ai)：AI 模型接入及 OpenAI 兼容服务适配。
+- [Mozilla PDF.js](https://github.com/mozilla/pdf.js)：PDF 解析、文字提取与页面渲染。
+- [core-js](https://github.com/zloirock/core-js)：JavaScript 兼容性支持。
+- [htmlparser2](https://github.com/fb55/htmlparser2)：HTML 解析基础。
+- [normalize.css](https://github.com/necolas/normalize.css)：继承样式中的浏览器默认样式规范化。
+- [CSS.GG](https://github.com/astrit/css.gg/tree/a99539a934b6b53f367ffa6ac1aa6221f879e08e)：继承的旧版 CSS 图标；链接指向所引用的历史版本，许可说明见第三方声明。
+
+术语数据另参考 [Immersive Translate terms](https://github.com/immersive-translate/terms)，感谢原作者的整理。其来源与尚待确认的再分发许可情况见 [预设来源](docs/public-presets.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)；致谢不替代授权。
+
+当前品牌为 **页渡 · Yedu**，使用暖橙色折页图标；[源图与生成提示词](assets/branding/reading-icon-v1.prompt.txt)保留在仓库中。旧名称 TWP AI 仅用于历史兼容，TWP 上游名称用于来源说明与致谢。翻译服务名称和标识仅用于标明提供方，不表示获得其背书。独立设计和生成记录不构成商标注册或无侵权保证。
+
+本地构建目录暂保留 `build/TWP_AI_<版本>_Chromium_MV3`，避免更换目录影响已加载的开发版扩展身份；发布压缩包使用 `Yedu` 前缀。GitHub 仓库地址、扩展 ID、配置与缓存键保持兼容。

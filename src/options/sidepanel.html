@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>页渡 · Yedu 翻译侧边栏</title><link rel="stylesheet" href="sidepanel.css"><link rel="stylesheet" href="/lib/brandTheme.css"></head>
+<body>
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-text" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h8M12 8v9"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 4l3 5m3-5 3 5m-7 3 5 3-5 3z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-5 4 4 3-3 5 4"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .7-1.5 1-1.5 3m0 3h.01"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M3 6h4m6 0h8M3 18h10m6 0h2"/><circle cx="10" cy="6" r="3"/><circle cx="16" cy="18" r="3"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M14 3h7v7m0-7-9 9M10 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5"/></symbol>
+  </defs></svg>
+  <main>
+    <header><span class="brand">页渡 · Yedu <span>翻译工作台</span></span><h1 id="heading">文本翻译</h1><p id="intro">一页一渡，读懂彼岸。</p></header>
+    <section id="translation-options" aria-label="翻译选项">
+      <div class="service-row single-service"><label class="sr-only" for="engine">翻译服务</label><select id="engine"><option value="openai">AI · 自定义模型</option><option value="bing">微软翻译</option><option value="google">谷歌翻译</option><option value="yandex">Yandex</option></select><button class="icon-button settings-link" title="模型与术语设置" aria-label="模型与术语设置"><svg><use href="#i-settings"/></svg></button></div>
+      <div id="model-row" hidden><label class="sr-only" for="profile">AI 模型</label><select id="profile"></select><p class="hint" id="model-hint"></p></div>
+      <div class="comparison-toolbar"><details id="compare-picker"><summary id="compare-summary">翻译服务</summary><div id="compare-list"></div><button class="quiet settings-link">配置 AI 模型与专家 ↗</button></details><label class="sr-only" for="text-mode">结果显示方式</label><select id="text-mode"><option value="bilingual">双语对照</option><option value="translated">仅译文</option></select></div><div class="language-row"><label class="sr-only" for="source-language">源语言</label><select id="source-language"></select><span class="arrow" aria-hidden="true">→</span><label class="sr-only" for="target">目标语言</label><select id="target"></select></div>
+    </section>
+    <section id="view-text" class="view" role="tabpanel" aria-labelledby="tab-text">
+      <div class="editor"><label class="sr-only" for="source">需要翻译的文本</label><textarea id="source" maxlength="16000" placeholder="输入或粘贴文本…" spellcheck="false"></textarea><div class="editor-footer"><span id="count">0 / 16,000</span><button id="paste" class="quiet">粘贴文本</button><button id="clear" class="quiet" title="清空原文和译文">清空</button></div></div>
+
+    </section>
+    <section id="text-settings" aria-label="AI 翻译风格与专家">
+      <div class="expert-row"><label>AI 专家<select id="text-expert"></select></label><label>AI 术语库<select id="text-glossary"></select></label><button class="quiet settings-link">管理专家与术语 ↗</button></div>
+      <label class="sr-only" for="text-style">翻译风格</label><select id="text-style" class="sr-only" tabindex="-1"></select><div id="style-chips" role="group" aria-label="翻译风格"></div><p id="ai-style-hint" class="hint"></p>
+      <div class="submit-row"><span class="hint">Ctrl + Enter 翻译</span><button id="translate-text" class="primary" disabled>开始对比翻译 <span aria-hidden="true">↵</span></button></div>
+    </section>
+    <section id="view-document" class="view" role="tabpanel" aria-labelledby="tab-document" hidden>
+      <div class="upload-card"><svg class="large-icon"><use href="#i-file"/></svg><h2>翻译 PDF 与文本文件</h2><p>PDF 在独立标签页中连续阅读、左右对照，TXT 保留分段。</p><label class="upload-button" for="document-file">选择 PDF / TXT 文件 <span aria-hidden="true">↑</span></label><input class="file-input" id="document-file" type="file" accept=".pdf,.txt,application/pdf,text/plain"><p class="hint">PDF 最多 50 MB / 2000 页；TXT 最多 200 KB / 100,000 字符</p></div>
+      <p id="document-name" class="file-name">尚未选择文件</p><label class="check"><input id="bilingual-document" type="checkbox" checked>保留双语（原文 + 译文）</label><button id="translate-document" class="primary full" disabled>翻译文档</button>
+      <button id="retranslate-document" class="secondary full" disabled>重新翻译（跳过 AI 缓存）</button>
+      <aside class="note"><strong>格式支持</strong><p>PDF 在本机解析，阅读器默认自动翻译停留页，将该页文字发送到所选服务；可在顶部关闭自动翻译。原件保留版式，右侧译文按段显示，可导出 TXT。纯扫描页需要 OCR；DOCX / EPUB 尚未接入。AI 缓存时间可在模型与术语设置中调整。</p></aside>
+    </section>
+    <section id="view-video" class="view" role="tabpanel" aria-labelledby="tab-video" hidden>
+      <div class="upload-card"><svg class="large-icon"><use href="#i-video"/></svg><h2>让字幕成为双语笔记</h2><p>导入 SRT / VTT 字幕，翻译时保留时间轴和字幕编号。</p><label class="upload-button" for="subtitle-file">选择字幕文件 <span aria-hidden="true">↑</span></label><input class="file-input" id="subtitle-file" type="file" accept=".srt,.vtt"><p class="hint">最多 200 KB / 100,000 字符</p></div>
+      <p id="subtitle-name" class="file-name">尚未选择文件</p><label class="check"><input id="bilingual-subtitles" type="checkbox" checked>导出双语字幕（原文 + 译文）</label><button id="translate-video" class="primary full" disabled>翻译字幕</button>
+      <aside class="note"><strong>当前支持字幕文件</strong><p>网页视频的实时字幕、音频识别和无字幕视频翻译尚未接入。</p></aside>
+    </section>
+    <section id="view-image" class="view" role="tabpanel" aria-labelledby="tab-image" hidden>
+      <div class="feature-card"><svg class="large-icon"><use href="#i-image"/></svg><span class="tag">规划中</span><h2>图片翻译</h2><p>识别图片中的文字，再将译文与原图一起阅读。</p></div><aside class="note"><strong>图片识别尚未接入</strong><p>目前可以先复制图片中的文字，在「文本」中翻译。此页面不会上传图片。</p></aside><button id="image-to-text" class="secondary full">前往文本翻译 →</button>
+    </section>
+    <section id="view-help" class="view" role="tabpanel" aria-labelledby="tab-help" hidden>
+      <div class="help-item"><b>01</b><div><h2>选择翻译服务</h2><p>支持微软、谷歌、Yandex 和自定义 AI。AI 复用已保存的模型、专业领域和术语库。</p></div></div><div class="help-item"><b>02</b><div><h2>随读随译</h2><p>粘贴文字后点击翻译。网页上的中间图标翻译整页，下方按钮打开控制面板。</p></div></div><div class="help-item"><b>03</b><div><h2>导入与导出</h2><p>文档支持 PDF / TXT，字幕支持 SRT / VTT。PDF 默认自动翻译停留页，可在阅读器顶部关闭；其他文档点击翻译后发送文字。AI 缓存命中时无需再次发送。PDF 可导出已完成的页面，部分结果标记为 partial。</p></div></div><button class="secondary full settings-link">配置 AI 模型与术语 →</button>
+    </section>
+    <div id="task-status" role="status" aria-live="polite"></div><button id="cancel" class="secondary full" hidden>取消翻译</button>
+    <section id="comparison-results" aria-label="多模型翻译结果"></section>
+    <section id="result-card" hidden aria-label="翻译结果"><div class="result-heading"><h2>译文</h2><button id="copy" class="quiet">复制</button></div><pre id="result"></pre><button id="download" class="secondary full" hidden>下载译文</button></section>
+    <section id="workspace-placeholder" aria-label="译文预览"><h2>译文</h2><p>翻译结果会显示在这里。</p><span>选择服务，输入文字，开始翻译。</span></section>
+    <footer>按需翻译 · 保留原文</footer>
+  </main>
+  <nav class="rail" aria-label="翻译工具">
+    <button id="expand" class="rail-button" title="在新标签页打开" aria-label="在新标签页打开"><svg><use href="#i-expand"/></svg></button>
+    <div role="tablist" aria-label="翻译功能" aria-orientation="vertical">
+      <button id="tab-text" class="rail-button" role="tab" aria-selected="true" aria-controls="view-text" data-view="text"><svg><use href="#i-text"/></svg><span>文本</span></button>
+      <button id="tab-document" class="rail-button" role="tab" aria-selected="false" aria-controls="view-document" tabindex="-1" data-view="document"><svg><use href="#i-file"/></svg><span>文档</span></button>
+      <button id="tab-video" class="rail-button" role="tab" aria-selected="false" aria-controls="view-video" tabindex="-1" data-view="video"><svg><use href="#i-video"/></svg><span>视频</span></button>
+      <button id="tab-image" class="rail-button" role="tab" aria-selected="false" aria-controls="view-image" tabindex="-1" data-view="image"><svg><use href="#i-image"/></svg><span>图片</span></button>
+      <button id="tab-help" class="rail-button" role="tab" aria-selected="false" aria-controls="view-help" tabindex="-1" data-view="help"><svg><use href="#i-help"/></svg><span>指南</span></button>
+    </div>
+    <button class="rail-button rail-bottom settings-link" title="模型与术语设置" aria-label="模型与术语设置"><svg><use href="#i-settings"/></svg><span>设置</span></button><img class="rail-logo" src="/icons/reading.png" alt="页渡 · Yedu">
+  </nav>
+  <script src="/lib/polyfill.js"></script><script src="/lib/checkedLastError.js"></script><script src="/lib/languages.js"></script><script src="/lib/config.js"></script><script src="/lib/platformInfo.js"></script><script src="/lib/builtinPresets.js"></script><script src="/lib/aiPresets.js"></script><script src="/lib/aiClient.js"></script><script src="/lib/documentTranslation.js"></script><script src="textComparison.js"></script><script src="pdfHandoff.js"></script><script src="sidepanel.js"></script>
+</body></html>

@@ -1,4 +1,19 @@
 {
+  "msgBilingualTranslationFailed": {
+    "message": "Translation could not be completed. Click the translation service icon to switch engines and retry. If you just installed or updated the extension, refresh the webpage."
+  },
+  "msgRefreshPageForTranslation": {
+    "message": "Cannot connect to this page. Refresh the webpage after installing or reloading the extension, then try again."
+  },
+  "lblPageTranslationMode": {
+    "message": "Page display"
+  },
+  "msgBilingualMode": {
+    "message": "Original + translation"
+  },
+  "msgTranslatedMode": {
+    "message": "Translation only"
+  },
   "extensionDescription": {
     "message": "Translate your page in real time using Google or Yandex."
   },
@@ -596,5 +611,11 @@
   },
   "btnChangePosition": {
     "message": "Change position"
+  },
+  "extensionDescriptionAI": {
+    "message": "Bilingual webpage translation, multi-model text comparison, custom AI experts and glossaries."
+  },
+  "lblAboutProject": {
+    "message": "About 页渡 · Yedu"
   }
 }

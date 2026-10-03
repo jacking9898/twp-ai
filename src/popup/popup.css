@@ -13,7 +13,7 @@ body {
 }
 
 .w3-buttonSelected {
-  background-color: #2196f3;
+  background-color: var(--accent, #b54708);
 }
 
 .margin10 {
@@ -232,16 +232,16 @@ hr {
   top: 3px;
 }
 
-#btnPatreon {
+#btnProject {
   margin-top: 6px;
   border-radius: 50%;
   padding: 10px;
   cursor: pointer;
 }
 
-#btnPatreon:hover i,
-#btnPatreon:hover i::after,
-#btnPatreon:hover i::before {
+#btnProject:hover i,
+#btnProject:hover i::after,
+#btnProject:hover i::before {
   background-color: tomato;
 }
 

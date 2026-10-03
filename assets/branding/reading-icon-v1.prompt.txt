@@ -1,0 +1,7 @@
+Generator: built-in image_gen (transparent_background=true)
+Brand: 页渡 · Yedu / Yedu
+Asset: reading-icon-v1.png
+Runtime assets: src/icons/reading.png (128), reading-16.png, reading-32.png, reading-64.png
+Runtime PNGs are resized from the generated source with alpha preserved.
+
+Use case: logo-brand. Create one original browser extension app icon for a personal bilingual reading and PDF translation tool. A bold simple warm burnt-orange rounded-square tile, with a cream folded ribbon/page forming an abstract flowing reading path, one small dark aubergine inset accent. Flat clean contemporary graphic, exceptionally clear at 16px, thick shapes, minimal geometry, generous inner margins, centered icon fills 90 percent of square canvas. No letters, no Chinese characters, no text, no blue, no overlapping translation cards, no open book, no globe, no sparkles. Do not imitate Google Translate, TWP or Immersive Translate icons. No mockup, no shadows outside the tile. Transparent outside rounded tile. Single square icon only.

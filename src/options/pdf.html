@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDF 阅读与翻译 · 页渡 · Yedu</title><link rel="stylesheet" href="pdf.css"><link rel="stylesheet" href="/lib/brandTheme.css"></head>
+<body>
+  <header class="reader-header">
+    <a class="reader-brand" href="sidepanel.html?workspace=1&view=document" target="_blank" title="打开翻译工作台"><img src="/icons/reading.png" alt="">页渡 · Yedu <span>PDF</span></a>
+    <label class="service-select">翻译服务 <select id="engine"><option value="google">谷歌翻译</option><option value="bing">微软翻译</option><option value="yandex">Yandex</option><option value="openai">AI · 自定义模型</option></select></label>
+    <label id="model-row" hidden><span class="sr-only">AI 模型</span><select id="profile"></select></label>
+    <div class="language-select"><label><span class="sr-only">源语言</span><select id="source-language"></select></label><span aria-hidden="true">→</span><label><span class="sr-only">目标语言</span><select id="target"></select></label></div>
+    <button id="ai-insights">AI 用量与术语</button>
+    <button id="settings" class="quiet">模型与术语设置</button>
+    <label class="file-button" for="document-file">打开 PDF</label><input class="sr-only" id="document-file" type="file" accept=".pdf,application/pdf">
+  </header>
+  <div class="reader-actions">
+    <span id="document-name">PDF 阅读与翻译</span>
+    <button id="pdf-auto-translate" type="button" class="pdf-toggle" aria-pressed="true" aria-label="滚动自动翻译">滚动自动翻译</button>
+    <label>翻译范围 <select id="pdf-scope"><option value="page">当前页</option><option value="all">全文</option></select></label>
+    <button id="translate-document" class="primary" disabled>翻译当前页</button>
+    <button id="retranslate-document" disabled title="跳过 AI 缓存，重新请求翻译">重新翻译</button>
+    <button id="cancel" hidden>取消翻译</button>
+    <button id="pdf-export" disabled>下载已翻译页面 TXT</button>
+  </div>
+  <div class="reader-navigation">
+    <button id="pdf-outline-toggle" aria-controls="pdf-outline" aria-expanded="true">目录</button>
+    <div class="pdf-navigation"><button id="pdf-previous" aria-label="上一页" disabled>上一页</button><label class="sr-only" for="pdf-page">页码</label><input id="pdf-page" type="number" min="1" value="1" disabled><span id="pdf-count">/ 0 页</span><button id="pdf-next" aria-label="下一页" disabled>下一页</button></div>
+    <label><span class="sr-only">缩放</span><select id="pdf-zoom" disabled><option value="fit">适合宽度</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option></select></label>
+    <button id="pdf-sync-scroll" type="button" class="pdf-toggle" aria-pressed="true" aria-label="同步滚动" title="两侧按对应页面和文字块跟随；关闭后可分别滚动">同步滚动</button>
+    <button id="bilingual-document" type="button" class="pdf-toggle" aria-pressed="true" aria-label="显示原文＋译文">显示原文＋译文</button>
+    <button id="pdf-text-tool" aria-expanded="false">Text · 文字</button>
+    <button id="pdf-draw-tool" aria-pressed="false">Draw · 绘制</button>
+    <button id="pdf-style-tool">Style · 样式</button>
+    <button id="pdf-search-tool">搜索</button>
+    <button id="pdf-setup-tool">阅读设置</button>
+    <button id="pdf-hide-top" aria-expanded="true">隐藏顶部</button>
+    <span id="task-status" role="status" aria-live="polite">选择 PDF，开始左右对照阅读</span>
+  </div>
+  <main id="pdf-reader" hidden>
+    <aside id="pdf-outline" aria-label="PDF 目录"><h2>文档目录</h2><div id="pdf-outline-items"></div></aside>
+    <div class="reader-content">
+      <section class="pdf-pane"><h2>原文 · 点击文字块定位译文</h2><div id="pdf-scroll" tabindex="0" role="region" aria-label="PDF 原文连续阅读区"><div id="pdf-pages"></div></div></section>
+      <section class="pdf-pane"><h2><span id="pdf-reading-position">译文 · 保留段落结构</span> <button id="pdf-align-page">查看当前页译文</button></h2><div id="pdf-translation-scroll" tabindex="0" role="region" aria-label="PDF 译文连续阅读区"><div id="pdf-translations"></div></div></section>
+    </div>
+  </main>
+  <div id="pdf-edit-bar" hidden><button data-pdf-mode="navigate">文字块定位</button><button data-pdf-mode="select">选择并复制原文</button><button data-pdf-mode="text">添加文字批注</button><button data-pdf-mode="draw">自由绘制</button><button data-pdf-mode="erase">删除批注</button><label>颜色 <input id="pdf-ink-color" type="color" value="#dd3344"></label><label>粗细 <input id="pdf-ink-width" type="range" min="1" max="10" value="3"></label><button id="pdf-undo">撤销批注</button><button id="pdf-save-notes">下载批注</button><label class="file-button">导入批注<input id="pdf-load-notes" class="sr-only" type="file" accept=".json"></label><span>批注仅在本次阅读保留，可下载后导入；不改写 PDF。</span><button id="pdf-edit-close">收起工具</button></div>
+  <dialog id="pdf-note-dialog"><form method="dialog"><h2>添加文字批注</h2><textarea id="pdf-note-text" rows="4" maxlength="1000" placeholder="输入批注文字"></textarea><div class="dialog-actions"><button value="cancel">取消</button><button id="pdf-note-save" value="save" class="primary">添加</button></div></form></dialog>
+  <dialog id="pdf-style-dialog"><h2>译文样式</h2><p>调整即时生效，不会重新请求翻译。</p><label>字体 <select id="pdf-style-font"><option value="sans-serif">无衬线</option><option value="serif">衬线 / 宋体</option></select></label><label>字号 <input id="pdf-style-size" type="range" min="12" max="24" value="14"><output id="pdf-style-size-value">14 px</output></label><label>行距 <input id="pdf-style-line" type="range" min="1.2" max="2.4" step="0.1" value="1.8"></label><label>段落间距 <input id="pdf-style-gap" type="range" min="0" max="32" value="14"></label><label>左右留白 <input id="pdf-style-margin" type="range" min="8" max="64" value="28"></label><button id="pdf-style-indent" type="button" class="pdf-toggle" aria-pressed="false" aria-label="正文首行缩进">正文首行缩进</button><button id="pdf-style-compact" type="button" class="pdf-toggle" aria-pressed="false" aria-label="紧凑显示">紧凑显示</button><button id="pdf-style-original" type="button" class="pdf-toggle" aria-pressed="true" aria-label="显示原文＋译文">显示原文＋译文</button><p class="hint">保留原文布局与段落对应关系，译文按字号和行距自动增高，后续段落和公式顺延；不裁切正文。可切换原文＋译文，原文在上、译文在下；公式仅显示一份。已识别的独立公式和矩阵保留原 PDF 图形；行内公式、图片和复杂表格仍可能无法完整还原。公式图形不包含在 TXT 导出中。</p><div class="dialog-actions"><button id="pdf-style-reset">恢复默认</button><button data-close-dialog="pdf-style-dialog" class="primary">完成</button></div></dialog>
+  <dialog id="pdf-search-dialog"><h2>搜索 PDF 原文</h2><form id="pdf-search-form"><input id="pdf-search-query" type="search" maxlength="200" required placeholder="输入关键词"><button class="primary">搜索</button><button id="pdf-search-stop" type="button">停止</button></form><p id="pdf-search-status" role="status"></p><div id="pdf-search-results"></div><button data-close-dialog="pdf-search-dialog">关闭</button></dialog>
+  <dialog id="pdf-setup-dialog"><h2>阅读设置</h2><button id="pdf-first-page">转到第一页</button><button id="pdf-last-page">转到最后一页</button><button data-pdf-mode="hand">手形拖动工具</button><button data-pdf-mode="navigate">文字块定位工具</button><button id="pdf-fullscreen">进入 / 退出全屏</button><button id="pdf-properties">文档属性</button><pre id="pdf-properties-content"></pre><p class="hint">默认同步滚动，可在工具栏关闭后分别滚动；页码或目录跳转定位两侧，点击原文块定位对应译文。</p><button data-close-dialog="pdf-setup-dialog">关闭</button></dialog>
+  <section id="pdf-empty"><img src="/icons/reading.png" alt=""><h1>整份 PDF，连续阅读</h1><p>左右默认同步滚动，可关闭同步后分别滚动；点击原文文字块定位译文。支持目录、页码跳转和缩放。</p><label class="file-button primary" for="document-file">选择 PDF 文件</label><p class="hint">最多 50 MB / 2000 页。支持文字层 PDF，扫描件暂不支持 OCR。<br>原文件留在本机；开启自动翻译后，停留页面的文字会发送到所选服务，AI 缓存命中时直接复用。可在顶部关闭。</p></section>
+  <script type="module" src="/lib/pdfLoader.mjs"></script><script src="/lib/polyfill.js"></script><script src="/lib/checkedLastError.js"></script><script src="/lib/languages.js"></script><script src="/lib/config.js"></script><script src="/lib/platformInfo.js"></script><script src="/lib/aiClient.js"></script><script src="/lib/documentTranslation.js"></script><script src="pdfHandoff.js"></script><script src="pdfMath.js"></script><script src="pdfLayout.js"></script><script src="pdfInlineMath.js"></script><script src="pdfTypeset.js"></script><script src="pdfToggle.js"></script><script src="pdfReader.js"></script><script src="pdfDocument.js"></script><script src="pdfTools.js"></script><script src="pdf.js"></script>
+</body></html>

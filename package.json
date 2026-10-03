@@ -1,22 +1,44 @@
 {
-  "name": "translate-web-pages",
-  "version": "1.0.0",
+  "name": "yedu",
+  "version": "0.1.0",
   "browserslist": [
     "firefox 63",
     "chrome 70"
   ],
   "scripts": {
+    "test": "playwright test",
+    "test:extension": "node tests/extension-smoke.cjs",
+    "test:background": "node --test tests/background-audio.cjs",
     "build": "npx gulp",
     "build:local-sourcemaps": "npx gulp --local-sourcemaps",
     "build:sign": "npx gulp --sign",
-    "polyfill": "npx webpack --entry=./polyfill.js --output-path=./src/lib --output-filename=polyfill.js -d inline-source-map"
+    "polyfill": "npx webpack --entry=./polyfill.js --output-path=./src/lib --output-filename=polyfill.js -d inline-source-map",
+    "build:ai": "webpack --config webpack.ai.cjs",
+    "test:ai": "node --test tests/ai-service.cjs tests/presets.cjs tests/ai-insights.cjs",
+    "test:ai-insights": "node tests/ai-insights-extension.cjs",
+    "test:ai-extension": "node tests/ai-extension.cjs",
+    "test:sidebar": "node --test tests/documents.cjs tests/sidepanel-background.cjs tests/pdf-cache.cjs",
+    "test:pdf-cache": "node tests/pdf-cache-extension.cjs",
+    "test:pdf-auto": "node tests/pdf-auto-extension.cjs",
+    "test:pdf-tools": "node tests/pdf-tools-extension.cjs",
+    "test:pdf-sync": "node tests/pdf-sync-extension.cjs",
+    "test:pdf-typeset": "node tests/pdf-typeset-extension.cjs",
+    "test:pdf-math": "node tests/pdf-math-extension.cjs",
+    "test:release": "node --test tests/release.cjs",
+    "licenses": "node scripts/collect-licenses.cjs",
+    "test:pdf-inline": "node --test tests/pdf-inline-math.cjs",
+    "test:pdf-inline-extension": "node tests/pdf-inline-math-extension.cjs"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.62",
+    "ai": "^7.0.127",
     "core-js": "^3.26.1",
-    "htmlparser2": "^10.0.0"
+    "htmlparser2": "^10.0.0",
+    "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
     "@babel/preset-env": "^8.0.2",
+    "@playwright/test": "^1.63.0",
     "@types/chrome": "latest",
     "@types/firefox-webext-browser": "latest",
     "crx3": "^2.0.0",
@@ -31,5 +53,19 @@
   "allowScripts": {
     "core-js@3.50.0": true,
     "es5-ext": false
+  },
+  "private": true,
+  "license": "MPL-2.0",
+  "description": "Bilingual webpage translation, multi-model text comparison, and customizable AI experts.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jacking9898/twp-ai.git"
+  },
+  "homepage": "https://github.com/jacking9898/twp-ai",
+  "bugs": {
+    "url": "https://github.com/jacking9898/twp-ai/issues"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   }
 }
