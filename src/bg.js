@@ -28,5 +28,7 @@ importScripts("/background/aiService.bundle.js");
 importScripts("/background/translationService.js");
 importScripts("/background/sidePanel.js");
 importScripts("/background/imageCapture.js");
+importScripts("/lib/videoSubtitles.js");
+importScripts("/background/videoSubtitles.js");
 importScripts("/background/textToSpeech.js");
 importScripts("/background/background.js");

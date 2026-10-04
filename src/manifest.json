@@ -151,6 +151,8 @@
       "js": [
         "/contentScript/popupMobile.js",
         "/contentScript/regionTranslator.js",
+        "/lib/videoSubtitles.js",
+        "/contentScript/videoTranslator.js",
         "/contentScript/floatingTranslator.js"
       ]
     }
