@@ -139,7 +139,7 @@ const twpImageTranslation = (() => {
       let sourceDocument;
       try {sourceDocument = twpDocumentTranslation.parse($('image-text').value, 'txt');}
       catch (error) {status(error.message, true);return;}
-      const options = {...readOptions(), profileId, expertId: $('image-expert').value, glossaryId: $('image-glossary').value, styleId: $('image-style').value, context: 'Image text translation', cacheLabel: $('image-name').textContent, cacheBySegment: true, batchLimit: 6, characterLimit: 3000};
+      const options = {...readOptions(), profileId, expertId: $('image-expert').value, glossaryId: $('image-glossary').value, styleId: $('image-style').value, requestSource:'image', context: 'Image text translation', cacheLabel: $('image-name').textContent, cacheBySegment: true, batchLimit: 6, characterLimit: 3000};
       const token = ++serial;active = true;setBusy(true);resetTranslation();status('正在翻译识别文字…');
       const started = Date.now();let completedCount = 0;
       const progress = () => {if (serial === token) status(`正在翻译：已完成 ${completedCount} / ${sourceDocument.segments.length} 段 · 已等待 ${Math.floor((Date.now() - started) / 1000)} 秒`);};

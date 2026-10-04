@@ -161,7 +161,7 @@ void (async () => {
   $("document-tool").onclick = () => openWorkspace("document");
   $("text-tool").onclick = () => openWorkspace("text");
   $('video-tool').onclick = () => {
-    const initial={service:$('engine').value,profileId:$('profile').value,targetLanguage:$('target').value};
+    const initial={service:$('engine').value,profileId:$('profile').value};
     closePanel();twpVideoTranslator.open(initial);
   };
   $("hover-enabled").onchange = () => twpConfig.set("hoverTranslationSettings", { ...twpConfig.get("hoverTranslationSettings"), enabled: $("hover-enabled").checked });

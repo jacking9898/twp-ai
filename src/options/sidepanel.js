@@ -163,7 +163,7 @@ void (async () => {
     const bilingual = activeView === "video" ? $("bilingual-subtitles").checked : $("bilingual-document").checked;
     resetResult(); busy = true; controls(); status("正在翻译…");
     try {
-      const translations = await translateDocument(document, service, targetLanguage, {...readOptions(),profileId: $("profile").value, cacheLabel:file?.name, forceRefresh}, () => token === job);
+      const translations = await translateDocument(document, service, targetLanguage, {...readOptions(),profileId: $("profile").value, cacheLabel:file?.name, requestSource: view==='video'?'video':'document', forceRefresh}, () => token === job);
       if (token !== job) return;
       output = twpDocumentTranslation.render(document, translations, bilingual);
       $("result").textContent = output;
@@ -269,7 +269,7 @@ void (async () => {
         const text = sourceDocument.segments[offset++].text; batch.push(text); size += text.length;
       }
       const values = service === "openai"
-        ? await twpAIClient.translate(batch, target, options.context || (view === "video" ? "Video subtitles" : "Text translation"), "sidebar", options)
+        ? await twpAIClient.translate(batch, target, options.context || (view === "video" ? "Video subtitles" : "Text translation"), "sidebar", {...options,requestSource:options.requestSource||view})
         : await traditionalTranslate(batch, service, target, options.sourceLanguage);
       if (!current()) throw new Error("已取消翻译");
       translations.push(...values);

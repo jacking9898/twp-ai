@@ -1,6 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 const twpVideoSubtitles = (() => {
+  function preferenceKey(value) {
+    const url=new URL(value),host=url.hostname;
+    if(/(^|\.)youtube\.com$/.test(host)){
+      const id=url.pathname==='/watch'?url.searchParams.get('v'):url.pathname.match(/^\/(?:shorts|embed)\/([^/]+)/)?.[1];
+      if(/^[\w-]{11}$/.test(id||''))return 'youtube:'+id;
+    }
+    if(/(^|\.)bilibili\.com$/.test(host)){
+      const video=url.pathname.match(/\/video\/(BV[\w]+|av\d+)/i)?.[1];
+      if(video)return 'bilibili:'+video+':p'+Math.max(1,parseInt(url.searchParams.get('p'),10)||1);
+      const episode=url.pathname.match(/\/bangumi\/play\/(ep\d+)/)?.[1];
+      if(episode)return 'bilibili:'+episode;
+    }
+    // Unknown players may replace videos without changing their URL. Do not
+    // auto-enable them based on a page address alone.
+    return '';
+  }
   function clean(text) {
     return String(text || '').replace(/<br\s*\/?\s*>/gi, '\n').replace(/<(?:\/?(?:b|i|u|ruby|rt|c|v|lang|font)(?:[.\s][^>]*)?|(?:\d+:)?\d{2}:\d{2}\.\d{3})>/gi, '').replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, key) => ({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '})[key]).trim();
   }
@@ -26,13 +42,20 @@ const twpVideoSubtitles = (() => {
     return code.split('-')[0];
   }
   function preferredSource(sources, target, previousKey) {
-    const previous=sources.findIndex(source=>source.key===previousKey);
+    const previous=previousKey?sources.findIndex(source=>source.key===previousKey):-1;
     if(previous>=0)return previous;
+    const english=sources.map((source,index)=>({source,index})).filter(({source})=>language(source.language)==='en');
+    if(english.length){
+      const rank=source=>(['bilibili','youtube'].includes(source.kind)?0:2)+(source.automatic?1:0);
+      english.sort((a,b)=>rank(a.source)-rank(b.source));return english[0].index;
+    }
     const translatedLanguage=language(target), isOriginal=source=>language(source.language)!=='auto'&&language(source.language)!==translatedLanguage;
     // Prefer the site's independently fetched timeline over injected tracks
     // (which can include another extension's translated captions).
-    const platform=sources.findIndex(source=>source.kind==='bilibili'&&isOriginal(source));
+    const platform=sources.findIndex(source=>['bilibili','youtube'].includes(source.kind)&&isOriginal(source)&&!source.automatic);
     if(platform>=0)return platform;
+    const automatic=sources.findIndex(source=>['bilibili','youtube'].includes(source.kind)&&isOriginal(source));
+    if(automatic>=0)return automatic;
     const original=sources.findIndex(isOriginal);
     return original>=0?original:0;
   }
@@ -75,6 +98,6 @@ const twpVideoSubtitles = (() => {
   function exportSRT(cues, translations, bilingual = true) {
     return cues.filter(cue => translations.has(cue.id)).map((cue, i) => `${i + 1}\n${timestamp(cue.start)} --> ${timestamp(cue.end)}\n${bilingual ? cue.text + '\n' : ''}${translations.get(cue.id).replace(/\n\s*\n/g, '\n')}\n`).join('\n');
   }
-  return {clean, normalize, upcoming, active, exportSRT, parseFile, language, preferredSource, displayText, playerAPIURLs};
+  return {preferenceKey, clean, normalize, upcoming, active, exportSRT, parseFile, language, preferredSource, displayText, playerAPIURLs};
 })();
 if (typeof module !== 'undefined') module.exports = twpVideoSubtitles;

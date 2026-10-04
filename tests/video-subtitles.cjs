@@ -34,6 +34,10 @@ test('source selection prefers an original language, and same-language bilingual
   assert.equal(subtitles.displayText({text:'Hello'},undefined,'translated'),'');
   assert.equal(subtitles.preferredSource([{kind:'native',language:'en',key:'injected'},{kind:'bilibili',language:'en',key:'site'}],'zh-CN'),1);
   assert.equal(subtitles.preferredSource([{kind:'bilibili',language:'en',key:'first'},{kind:'bilibili',language:'en',key:'second'}],'zh-CN','second'),1);
+  assert.equal(subtitles.preferredSource([{kind:'youtube',language:'ja'},{kind:'youtube',language:'en-US',automatic:true}],'zh-CN'),1);
+  assert.equal(subtitles.preferredSource([{kind:'youtube',language:'en',automatic:true},{kind:'youtube',language:'en-GB'}],'zh-CN'),1);
+  assert.equal(subtitles.preferredSource([{language:'zh'},{language:'ja'}],'zh-CN'),1);
+  assert.equal(subtitles.preferredSource([{language:'zh'}],'zh-CN'),0);
 });
 
 test('player request URLs match the exact video/part and fixed Bilibili endpoints',()=>{
@@ -45,3 +49,13 @@ test('player request URLs match the exact video/part and fixed Bilibili endpoint
     'https://evil.example/x/player/v2?aid=123&cid=20',
     'https://api.bilibili.com/other?aid=123&cid=20'],{aid:123,cid:20,bvid:'BV123'}),[signed,byBV]);
 });
+
+ test('remembered enable state identifies a video, part or episode, ignoring tracking and playback time',()=>{
+  const key=subtitles.preferenceKey;
+  assert.equal(key('https://www.youtube.com/watch?v=abcdefghijk&t=12'),key('https://www.youtube.com/watch?v=abcdefghijk&list=playlist'));
+  assert.notEqual(key('https://www.youtube.com/watch?v=abcdefghijk'),key('https://www.youtube.com/watch?v=lmnopqrstuv'));
+  assert.equal(key('https://www.bilibili.com/video/BV1dQbu68ENM/?spm_id_from=tracking'),key('https://www.bilibili.com/video/BV1dQbu68ENM/?p=1'));
+  assert.notEqual(key('https://www.bilibili.com/video/BV1dQbu68ENM/?p=1'),key('https://www.bilibili.com/video/BV1dQbu68ENM/?p=2'));
+  assert.notEqual(key('https://www.bilibili.com/bangumi/play/ep123'),key('https://www.bilibili.com/bangumi/play/ep456'));
+  assert.equal(key('https://www.bilibili.com/'),'');assert.equal(key('https://example.com/video'),'');
+ });

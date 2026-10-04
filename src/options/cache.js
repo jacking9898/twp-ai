@@ -2,6 +2,7 @@
 'use strict';
 void (async()=>{
   await twpConfig.onReady();
+  if(new URLSearchParams(location.search).has('embedded'))document.body.classList.add('embedded');
   const $=id=>document.getElementById(id),selected=new Set();
   let offset=0,total=0,rows=[],version=0,busy=false;
   const free=()=>$('kind').value==='free';

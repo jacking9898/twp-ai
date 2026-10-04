@@ -3,7 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import presets from "../src/lib/aiPresets.js";
 import {cachePolicy, digest, beginWrite, finishWrite, readCache, writeCache, clearCache, pruneCache, cacheStats, listCache, cacheDetail, deleteCache} from "./translation-cache.js";
 
-import {containsTerm, usageOf, recordUsage, usageStats, clearUsage, readTerms, saveTerms, validateTerms, sourceOf, sessionOf, readPreferences, savePreferences} from "./ai-insights.js";
+import {containsTerm, usageOrigin, usageOf, recordUsage, usageStats, clearUsage, readTerms, saveTerms, validateTerms, sourceOf, sessionOf, readPreferences, savePreferences} from "./ai-insights.js";
 import {fetchAI, describeAIError, requestLifetime} from './ai-transport.js';
 
 class PublicError extends Error {}
@@ -223,7 +223,7 @@ async function translateParagraphs(input, signal, state) {
   if (signal.aborted) throw abortError();
   const missing = [...entries].filter(([,entry]) => entry.text == null);
   if (missing.length < entries.size) await recordUsage({usage:usageOf(), cached:true,
-    session:input.usageSession || "", source:input.sourceKey || "", model:profile.model, profile:profile.name, kind:"translation"}).catch(() => {});
+    origin:input.usageOrigin||"", session:input.usageSession || "", source:input.sourceKey || "", model:profile.model, profile:profile.name, kind:"translation"}).catch(() => {});
   let result = {cached:true, usage:{input:0,output:0,total:0}};
   // Tickets must precede the model request so clearing/disabling cache during it
   // cannot refill the cache when that request eventually finishes.
@@ -287,7 +287,7 @@ async function translate(input, signal, profileOverride, prepared) {
   const identity = [2, profile.id, profile.updated, system, prompt, protectedValues];
   if (providerOptions) identity.push(providerOptions);
   const key = await digest(JSON.stringify(identity));
-  const track=async(usage,cached=false)=>{if(input.privateContext)return;await recordUsage({usage,cached,session:input.usageSession||"",source:input.sourceKey||"",model:profile.model,profile:profile.name,kind:input.extractTerms?"terms":profileOverride?"test":"translation"}).catch(()=>{});};
+  const track=async(usage,cached=false)=>{if(input.privateContext)return;await recordUsage({usage,cached,origin:input.usageOrigin||"",session:input.usageSession||"",source:input.sourceKey||"",model:profile.model,profile:profile.name,kind:input.extractTerms?"terms":profileOverride?"test":"translation"}).catch(()=>{});};
   if (!input.forceRefresh) {
     const cached = await readCache(key, policy);
     if (signal.aborted) throw abortError();
@@ -346,9 +346,9 @@ async function insights(request,sender) {
   const token=new URL(sender.url).searchParams.get('snapshot');
   const snapshot=token?(await chrome.storage.session.get('aiInsightSnapshot:'+token))['aiInsightSnapshot:'+token]:null;
   if(snapshot && Date.now()-snapshot.time>1800000){await chrome.storage.session.remove('aiInsightSnapshot:'+token);throw new PublicError('页面内容快照已过期，请从原网页或 PDF 重新打开');}
-  if(request.action==='aiInsightClear'){await clearUsage();return {};}
+  if(request.action==='aiInsightClear'){await clearUsage(request.resetTotals===true);return {};}
   const target=String(request.targetLanguage||snapshot?.target||'zh-CN').slice(0,40);
-  if(request.action==='aiInsightRead')return {snapshot: snapshot?{...snapshot,text:undefined}:null,stats:await usageStats(snapshot?.session||''),terms:await readTerms(snapshot?.source,target),profiles:(await storage('getAll')).map(p=>({id:p.id,name:p.name,model:p.model}))};
+  if(request.action==='aiInsightRead')return {snapshot: snapshot?{...snapshot,text:undefined}:null,stats:await usageStats(snapshot?.session||'',request.page),terms:await readTerms(snapshot?.source,target),profiles:(await storage('getAll')).map(p=>({id:p.id,name:p.name,model:p.model}))};
   if(!snapshot?.source)throw new PublicError('请从网页控制面板或 PDF 阅读器打开专属术语');
   if(request.action==='aiInsightSave') {
     try {return {terms:await saveTerms(snapshot.source,target,request.entries,request.revision)};}
@@ -358,7 +358,7 @@ async function insights(request,sender) {
     if(!snapshot.text.trim())throw new PublicError('当前内容没有可提取的文字');
     const scope=scopeOf(sender),key=scope+':terms';if(requests.has(key))throw new PublicError('正在提取，请稍候');
     const controller=new AbortController(),stop=requestLifetime(controller);requests.set(key,{scope,id:'terms',controller});
-    try {return await translate({id:'terms',segments:[{id:'0',text:snapshot.text}],targetLanguage:target,profileId:request.profileId||snapshot.profileId,extractTerms:true,sourceKey:snapshot.source,usageSession:snapshot.session},controller.signal);}
+    try {return await translate({id:'terms',segments:[{id:'0',text:snapshot.text}],targetLanguage:target,profileId:request.profileId||snapshot.profileId,extractTerms:true,usageOrigin:'术语提取 · '+(snapshot.source.startsWith('pdf:')?'PDF':'网页'),sourceKey:snapshot.source,usageSession:snapshot.session},controller.signal);}
     catch(error){throw new PublicError(safeError(error,controller.signal));}
     finally{stop();requests.delete(key);}
   }
@@ -448,7 +448,7 @@ async function handle(request, sender) {
       const profile = request.action === "aiTestProfile"
         ? normalizeProfile(request.profile, (await storage("getAll")).find(p => p.id === request.profile.id)) : undefined;
       const sourceKey=await sourceOf(request,sender);
-      return await translate({...request, cacheLabel:request.cacheLabel||sender.tab?.title, sourceKey,usageSession:await sessionOf(sender,sourceKey), privateContext: !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext}, controller.signal, profile);
+      return await translate({...request, cacheLabel:request.cacheLabel||sender.tab?.title, usageOrigin:usageOrigin(request,sender), sourceKey,usageSession:await sessionOf(sender,sourceKey), privateContext: !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext}, controller.signal, profile);
     } catch (error) { throw new PublicError(safeError(error, controller.signal)); }
     finally { stop(); requests.delete(key); }
   }

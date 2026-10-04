@@ -4,12 +4,26 @@ let database;
 function open(){return database ||= new Promise((resolve,reject)=>{const r=indexedDB.open('TWP_AI_INSIGHTS',2);r.onupgradeneeded=()=>{for(const name of ['totals','events','terms','preferences'])if(!r.result.objectStoreNames.contains(name))r.result.createObjectStore(name,{keyPath:'key'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>{database=null;reject(r.error);};});}
 async function tx(names,mode,action){const db=await open();return new Promise((resolve,reject)=>{const t=db.transaction(names,mode);let result;action(t,value=>result=value);t.oncomplete=()=>resolve(result);t.onerror=t.onabort=()=>reject(t.error);});}
 const valid=n=>Number.isSafeInteger(n)&&n>=0?n:null;
+export function usageOrigin(request,sender){
+  const categories={page:'网页翻译',video:'视频字幕',image:'图片翻译',pdf:'PDF 翻译',document:'文档翻译',text:'文本翻译',sidebar:'翻译工作台',preview:'模型预览',selection:'划词翻译',selected:'划词翻译',quick:'划词翻译',hover:'悬停翻译'};
+  const group=String(request.requestSource||'').split('-')[0];
+  let host='';try{const url=new URL(sender.url);if(/^https?:$/.test(url.protocol))host=url.hostname;}catch{}
+  const label=request.action==='aiTestProfile'?'连接测试':request.extractTerms?'术语提取':categories[group]||(host?'网页翻译':'扩展页面');
+  return host?label+' · '+host:label;
+}
 export function containsTerm(source,term){const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return new RegExp(`${/^[a-z0-9]/i.test(term)?'(?<![a-z0-9_])':''}${escaped}${/[a-z0-9]$/i.test(term)?'(?![a-z0-9_])':''}`,'iu').test(source);}
 export function usageOf(value){const input=valid(value?.inputTokens),output=valid(value?.outputTokens);return {input,output,total:valid(value?.totalTokens)??(input!==null&&output!==null?input+output:null),reasoning:valid(value?.outputTokenDetails?.reasoningTokens),cachedInput:valid(value?.inputTokenDetails?.cacheReadTokens)};}
 export function addUsage(total={},row){const result={...total};for(const k of ['requests','cacheHits','unknown','input','output','total','reasoning','cachedInput'])result[k] ||= 0;if(row.cached)result.cacheHits++;else{result.requests++;if(row.usage.total===null)result.unknown++;for(const k of ['input','output','total','reasoning','cachedInput'])result[k]+=row.usage[k]??0;}return result;}
 export async function recordUsage(row){row={...row,key:crypto.randomUUID(),time:Date.now()};await tx(['totals','events'],'readwrite',t=>{const totals=t.objectStore('totals');for(const key of ['all','session:'+row.session]){const r=totals.get(key);r.onsuccess=()=>totals.put({...addUsage(r.result,row),key});}const events=t.objectStore('events');events.put(row);const all=events.getAll();all.onsuccess=()=>{for(const entry of all.result.sort((a,b)=>b.time-a.time).slice(2000))events.delete(entry.key);};});}
-export async function usageStats(session){return tx(['totals','events'],'readonly',(t,done)=>{const all=t.objectStore('totals').get('all'),current=t.objectStore('totals').get('session:'+session),events=t.objectStore('events').getAll();events.onsuccess=()=>done({total:all.result||{},current:current.result||{},events:events.result.sort((a,b)=>b.time-a.time).slice(0,100)});});}
-export async function clearUsage(){await tx(['totals','events'],'readwrite',t=>{t.objectStore('totals').clear();t.objectStore('events').clear();});}
+export async function usageStats(session,requestedPage=0){return tx(['totals','events'],'readonly',(t,done)=>{
+  const all=t.objectStore('totals').get('all'),current=t.objectStore('totals').get('session:'+session),events=t.objectStore('events').getAll();
+  events.onsuccess=()=>{
+    const rows=events.result.sort((a,b)=>b.time-a.time||b.key.localeCompare(a.key)),pageSize=100,eventCount=rows.length;
+    const page=Math.min(Number.isSafeInteger(requestedPage)&&requestedPage>=0?requestedPage:0,Math.max(0,Math.ceil(eventCount/pageSize)-1));
+    done({total:all.result||{},current:current.result||{},events:rows.slice(page*pageSize,(page+1)*pageSize),page,pageSize,eventCount});
+  };
+});}
+export async function clearUsage(resetTotals=false){await tx(resetTotals?['totals','events']:['events'],'readwrite',t=>{if(resetTotals)t.objectStore('totals').clear();t.objectStore('events').clear();});}
 export function validateTerms(entries){if(!Array.isArray(entries)||entries.length>200)throw new Error('术语最多 200 条');const seen=new Set();let size=0;return entries.map(entry=>{if(!Array.isArray(entry)||entry.length!==2||entry.some(s=>typeof s!=='string'||!s.trim()||s.length>200))throw new Error('术语每项需为 1–200 字符');const pair=entry.map(s=>s.trim()),key=pair[0].toLocaleLowerCase();if(seen.has(key))throw new Error('术语原文不能重复');seen.add(key);size+=pair.join('').length;if(size>16000)throw new Error('术语总长度不能超过 16000 字符');return pair;});}
 export async function readTerms(source,target){if(!source)return {entries:[],revision:0};return await tx(['terms'],'readonly',(t,done)=>{const r=t.objectStore('terms').get(source+':'+target);r.onsuccess=()=>done(r.result);})||{entries:[],revision:0};}
 export async function saveTerms(source,target,entries,revision){entries=validateTerms(entries);let conflict=false;const row=await tx(['terms'],'readwrite',(t,done)=>{const s=t.objectStore('terms'),key=source+':'+target,r=s.get(key);r.onsuccess=()=>{if((r.result?.revision||0)!==revision){conflict=true;return;}const value={key,entries,revision:revision+1,updated:Date.now()};s.put(value);done(value);};});if(conflict)throw new Error('术语已在另一窗口更新，请刷新后再保存');return row;}

@@ -12351,11 +12351,20 @@ const twpLang = (function () {
    * get the list of localized languages for the current browser language
    * @returns {string[]} languageList
    */
+  // The browser UI locale is stable during a page's lifetime. Cache it while
+  // the extension context is valid; old pages can outlive an extension reload.
+  let browserUILanguage;
   twpLang.getLanguageList = function () {
     let uiLanguage =
       twpConfig.get("uiLanguage") !== "default"
         ? twpConfig.get("uiLanguage")
-        : chrome.i18n.getUILanguage();
+        : (() => {
+          if (!browserUILanguage) {
+            try { browserUILanguage = chrome.i18n.getUILanguage(); }
+            catch { browserUILanguage = typeof navigator !== 'undefined' ? navigator.language : 'en'; }
+          }
+          return browserUILanguage;
+        })();
     uiLanguage = twpLang.fixUILanguageCode(uiLanguage) || "en";
     return allLanguagesNames[uiLanguage];
   };

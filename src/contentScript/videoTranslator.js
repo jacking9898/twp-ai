@@ -9,13 +9,28 @@ const twpVideoTranslator = (() => {
   const liftedSubtitles = new Map();
   // Current Bilibili uses subtitle-x. Its panel fills the whole video; move the
   // inner positioning block, and measure its inline text rather than the panel.
-  const subtitlePositions='.bili-subtitle-x-subtitle-panel-position, .bili-subtitle-x-subtitle-rawmeat-wrap, .bpx-player-subtitle-panel, .bilibili-player-video-subtitle';
-  const subtitleText='.bili-subtitle-x-subtitle-panel-text, .bili-subtitle-x-subtitle-rawmeat-text, .bpx-player-subtitle-panel-text, .bilibili-player-video-subtitle-item';
-  const subtitleLayers='.bili-subtitle-x-subtitle-panel, .bili-subtitle-x-subtitle-rawmeat-wrap, .bpx-player-subtitle-panel, .bilibili-player-video-subtitle';
+  const playerSelector='.bpx-player-container, .bilibili-player-video-wrap, .html5-video-player';
+  const subtitlePositions='.bili-subtitle-x-subtitle-panel-position, .bili-subtitle-x-subtitle-rawmeat-wrap, .bpx-player-subtitle-panel, .bilibili-player-video-subtitle, .html5-video-player .caption-window';
+  const subtitleText='.bili-subtitle-x-subtitle-panel-text, .bili-subtitle-x-subtitle-rawmeat-text, .bpx-player-subtitle-panel-text, .bilibili-player-video-subtitle-item, .ytp-caption-segment';
+  const subtitleLayers='.bili-subtitle-x-subtitle-panel, .bili-subtitle-x-subtitle-rawmeat-wrap, .bpx-player-subtitle-panel, .bilibili-player-video-subtitle, .html5-video-player .caption-window';
   let captionFrame;
+  let removeMenuListeners;
+  let autoAttempts=0,autoNext=0,autoRestoring=false,captionWakeups=0;
+  const savedVideoSettings=()=>{const saved=twpConfig.get('videoTranslationPreferences')?.[location.hostname]||{},key=twpVideoSubtitles.preferenceKey(location.href);return {...saved,enabled:!!key&&!(Array.isArray(saved.disabledVideos)&&saved.disabledVideos.includes(key))};};
+  function rememberVideo(on) {
+    if(chrome.extension?.inIncognitoContext)return;
+    const entries=Object.entries(twpConfig.get('videoTranslationPreferences')||{}).filter(([host])=>host!==location.hostname).slice(-49);
+    const key=twpVideoSubtitles.preferenceKey(location.href),saved=savedVideoSettings();
+    let disabledVideos=Array.isArray(saved.disabledVideos)?saved.disabledVideos:[];
+    if(typeof on==='boolean'&&key){disabledVideos=disabledVideos.filter(value=>value!==key);if(!on)disabledVideos.push(key);}
+    twpConfig.set('videoTranslationPreferences',Object.fromEntries([...entries,[location.hostname,{disabledVideos:disabledVideos.slice(-100),service:$('service').value,profileId:$('profile').value,targetLanguage:$('target').value,display:$('display').value}]]));
+  }
   const $ = id => root.getElementById(id), escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const timeLabel = seconds => new Date(Math.max(0,seconds)*1000).toISOString().slice(11,23);
-  const sameLanguage = config => config.sourceLanguage !== 'auto' && twpVideoSubtitles.language(config.sourceLanguage) === twpVideoSubtitles.language(config.targetLanguage);
+  const sameLanguage = config => {
+    const source=twpVideoSubtitles.language(config.sourceLanguage),target=twpVideoSubtitles.language(config.targetLanguage);
+    return source!=='auto'&&(source===target||(source.startsWith('zh-')&&target.startsWith('zh-')));
+  };
   function status(message, error = false) {if (!ui) return;$('status').textContent = message;$('status').dataset.error = String(error);$('player-state').textContent = !error&&$('player-state').dataset.gap==='true' ? $('current').textContent : message;$('player-state').dataset.error=String(error);}
   function options() {
     const language=selected?.language || 'auto', normalized=/^zh(?:-|$)/i.test(language)?(twpVideoSubtitles.language(language)==='zh-hant'?'zh-TW':'zh-CN'):twpLang.fixTLanguageCode(language), sourceLanguage=twpLang.getLanguageList()[normalized] ? normalized : 'auto';
@@ -23,20 +38,29 @@ const twpVideoTranslator = (() => {
   }
   function controls() {
     $('start').textContent = enabled ? '停止视频翻译' : '开始翻译字幕';
-    for (const id of ['video', 'service', 'profile', 'target', 'import']) $(id).disabled = enabled || running || detecting;
+    for (const id of ['video', 'import']) $(id).disabled = enabled || running || detecting;
+    for (const id of ['service', 'profile', 'target']) $(id).disabled = detecting || scopeBusy;
     $('source').disabled = detecting || !sources.length;
     $('detect').disabled = detecting;
     $('start').disabled = !enabled && (running || detecting || scopeBusy || !video || !sources.length);
     $('all').disabled = !enabled || all || failed;
     $('retry').hidden = !failed;
     $('export').disabled = !translated.size;
-    $('profile-row').hidden = $('ai-options').hidden = $('service').value !== 'openai';
+    const usesAI=$('service').value==='openai';
+    $('profile-row').hidden = !usesAI;
+    $('ai-service-hint').textContent=usesAI?'专家、术语库和风格将用于本页的 AI 字幕翻译。':'当前服务不使用 AI 专家、术语库和风格；可先配置，切换到「AI · 自定义模型」后生效。';
+    $('use-ai').hidden=usesAI;
+    $('use-ai').disabled=detecting||scopeBusy;
+    syncQuickSettings();
     $('player-toggle').setAttribute('aria-checked', String(enabled));
     $('player-toggle').disabled = quickStarting || scopeBusy || detecting || (!enabled && running);
     $('player-toggle').title = enabled ? '关闭字幕翻译，恢复原字幕' : '开启字幕翻译，不刷新页面';
     $('player-toggle').firstElementChild.textContent = quickStarting || (running && !enabled) ? '准备中…' : '开启字幕翻译';
     $('player-icon').dataset.enabled=String(enabled);
     $('player-icon').title=enabled?'页渡字幕 · 已开启':'页渡字幕翻译';
+    // Background restoration can find no tracks when revisiting a video on the same
+    // site. Keep its diagnostic in settings, without an inactive-player toast.
+    $('player-state').dataset.active=String(enabled||(!autoRestoring&&(quickStarting||running)));
     $('player-state').dataset.busy=String((quickStarting || running) && !translated.size);
   }
   function cancelPending() {epoch++;running = false;twpAIClient.cancel('video');legacyCancel?.();legacyCancel = null;}
@@ -59,31 +83,54 @@ const twpVideoTranslator = (() => {
     if (video) video.removeAttribute('data-yedu-captions');
     if (ui) {controls();$('current').textContent = '';$('captions').hidden = true;$('player-state').dataset.gap='false';status(message);}
   }
-  function close() {discovery++;detecting=false;stop();clearInterval(routeClock);playerSlot?.remove();playerSlot=null;ui?.remove();ui = null;root = null;}
-  function hidePanel() {if (!ui) return;$('settings-panel').hidden=true;$('player-settings').setAttribute('aria-expanded','false');positionEntrance();}
-  function showPanel() {if (!ui) return;setPlayerMenu(false);$('settings-panel').hidden=false;$('player-settings').setAttribute('aria-expanded','true');}
+  function close() {discovery++;detecting=false;stop();clearInterval(routeClock);removeMenuListeners?.();removeMenuListeners=null;playerSlot?.remove();playerSlot=null;ui?.remove();ui = null;root = null;}
+  function hidePanel() {if (!ui) return;$('settings-panel').hidden=true;$('player-more').setAttribute('aria-expanded','false');positionEntrance();}
+  function showPanel() {if (!ui) return;setPlayerMenu(false);$('settings-panel').hidden=false;$('player-more').setAttribute('aria-expanded','true');}
+  function syncQuickSettings() {
+    for(const id of ['display','target','service']){
+      const original=$(id),quick=$('quick-'+id);
+      if(quick.options.length!==original.options.length)quick.replaceChildren(...[...original.options].map(option=>new Option(option.text,option.value)));
+      quick.value=original.value;quick.disabled=original.disabled;
+    }
+    $('quick-hint').textContent=enabled?'切换服务或语言后，将从当前播放位置重新翻译。':'模型、专家、术语和风格在「更多设置」中调整。';
+  }
   function setPlayerMenu(open) {if(!ui)return;$('player-menu').hidden=!open;$('player-icon').setAttribute('aria-expanded',String(open));positionEntrance();}
   function positionEntrance() {
     if (!ui) return;
-    const rect=video?.isConnected ? video.getBoundingClientRect() : null, dock=$('player-tools');
+    let rect=video?.isConnected ? video.getBoundingClientRect() : null;const dock=$('player-tools');
+    const youtubePlayer=video?.closest('.html5-video-player');
+    if(rect&&youtubePlayer)rect=youtubePlayer.getBoundingClientRect();
     dock.hidden=!rect || rect.width<120 || rect.height<80 || rect.bottom<80 || rect.top>innerHeight-40 || rect.right<0 || rect.left>innerWidth || document.fullscreenElement===video;
     if(dock.hidden)return;
-    const player=video.closest('.bpx-player-container, .bilibili-player-video-wrap');
-    const bar=player?.querySelector('.bpx-player-control-bottom-right, .bilibili-player-video-btn-start + .bilibili-player-video-control-bottom-right');
+    const player=video.closest(playerSelector),youtube=player?.classList.contains('html5-video-player');
+    const bar=player?.querySelector('.bpx-player-control-bottom-right, .bilibili-player-video-btn-start + .bilibili-player-video-control-bottom-right, .ytp-right-controls');
+    // During refresh the video often exists before its player controls. Do not
+    // place a platform button using the generic below-video fallback or a stale slot.
+    const platformPlayer=player||/(^|\.)(bilibili\.com|youtube\.com)$/.test(location.hostname);
+    if(platformPlayer&&!bar){playerSlot?.remove();playerSlot=null;dock.hidden=true;return;}
+    // Bilibili mounts the empty row before its controls/CSS. Our own slot gives
+    // that empty row a size, so slot/bar dimensions alone cannot prove readiness.
+    // Require a site-owned control, independent of anything inserted by Yedu.
+    const nativeControls=[...(bar?.children||[])].filter(element=>element!==playerSlot&&!element.classList.contains('yedu-video-control-slot'));
+    const neighbour=nativeControls.find(element=>{const box=element.getBoundingClientRect(),style=getComputedStyle(element);return box.width>=8&&box.height>=8&&style.display!=='none'&&style.visibility!=='hidden'&&Number(style.opacity)>0;});
+    if(platformPlayer&&!neighbour){playerSlot?.remove();playerSlot=null;dock.hidden=true;return;}
     // Reserve a real slot in the control row, then align our isolated Shadow DOM
     // button to it. The site's quality/fullscreen controls retain their space.
     if(playerSlot?.parentElement!==bar){playerSlot?.remove();playerSlot=null;if(bar){playerSlot=document.createElement('span');playerSlot.className='yedu-video-control-slot';playerSlot.setAttribute('aria-hidden','true');playerSlot.style.cssText='display:inline-block;flex:0 0 32px;width:32px;height:32px;align-self:center;';bar.prepend(playerSlot);}}
+    if(playerSlot&&youtube)playerSlot.style.float='left';
     const slotRect=playerSlot?.getBoundingClientRect(), barRect=bar?.getBoundingClientRect();
+    if(platformPlayer&&(!barRect?.width||!barRect.height||!slotRect?.width||!slotRect.height||slotRect.left<rect.left-8||slotRect.right>rect.right+8||barRect.top<rect.top+rect.height/2||barRect.bottom>rect.bottom+12)){dock.hidden=true;return;}
+    // Native children can arrive before the CSS that right-aligns the row.
+    if(platformPlayer&&barRect.right<rect.right-Math.max(48,rect.width*.12)){dock.hidden=true;return;}
     // Bilibili's row includes padding below its visible labels. Align to the
     // neighbouring control's rendered text, rather than the row's box centre.
-    const neighbour=playerSlot?.nextElementSibling;
     let anchorRect=neighbour?.getBoundingClientRect();
     if(neighbour){
       const walker=document.createTreeWalker(neighbour,NodeFilter.SHOW_TEXT,{acceptNode:node=>node.textContent.trim()&&visibleInPlayer(node.parentElement,player)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT});
       const text=walker.nextNode();
       if(text){const range=document.createRange();range.selectNodeContents(text);const bounds=range.getBoundingClientRect();if(bounds.height&&bounds.width)anchorRect=bounds;}
     }
-    const left=slotRect?.width?slotRect.left-8:rect.right-(player?Math.min(430,rect.width*.45):12)-32;
+    const left=slotRect?.width?slotRect.left-(youtube?0:8):rect.right-(player?Math.min(430,rect.width*.45):12)-32;
     const alignRect=anchorRect?.height?anchorRect:barRect;
     const top=alignRect?.height?alignRect.top+(alignRect.height-32)/2:player?rect.bottom-40:rect.bottom+8;
     const x=Math.max(8,Math.min(innerWidth-40,left));
@@ -92,7 +139,8 @@ const twpVideoTranslator = (() => {
     $('player-menu').style.left=Math.max(8-x,Math.min(-196,innerWidth-x-240))+'px';
   }
   async function toggleFromPlayer() {
-    if (enabled) {stop();return;}
+    autoAttempts=3;
+    if (enabled) {rememberVideo(false);stop();return;}
     if (quickStarting || running) return;
     quickStarting=true;controls();const url=location.href;
     try {
@@ -128,11 +176,11 @@ const twpVideoTranslator = (() => {
     restoreSubtitlePositions(true);
     const overlay=$('captions'),rect=video.getBoundingClientRect();
     if(overlay.hidden){restoreSubtitlePositions();return;}
-    const player=video.closest('.bpx-player-container, .bilibili-player-video-wrap');
+    const player=video.closest(playerSelector);
     let bottom=Math.min(innerHeight-12,rect.bottom-12);
     // Both progress and button rows occupy space while visible. Inspect actual
     // geometry/ancestor opacity, including the site's hover/fade transitions.
-    for(const control of player?.querySelectorAll('.bpx-player-control-bottom, .bpx-player-control-bottom-right, .bpx-player-progress-wrap, .bilibili-player-video-control-bottom, .bilibili-player-video-progress')||[]){
+    for(const control of player?.querySelectorAll('.bpx-player-control-bottom, .bpx-player-control-bottom-right, .bpx-player-progress-wrap, .bilibili-player-video-control-bottom, .bilibili-player-video-progress, .ytp-chrome-bottom, .ytp-progress-bar-container')||[]){
       const box=control.getBoundingClientRect();
       if(box.top>rect.top+rect.height/2&&box.top<rect.bottom&&visibleInPlayer(control,player))bottom=Math.min(bottom,box.top-8);
     }
@@ -170,6 +218,11 @@ const twpVideoTranslator = (() => {
   }
   function render() {
     if (!enabled || !video) return;
+    if(selected?.kind==='youtube'){
+      const ad=video.closest('.html5-video-player')?.classList.contains('ad-showing');
+      document.documentElement.toggleAttribute('data-yedu-video-running',!ad&&$('display').value==='bilingual');
+      if(ad){$('captions').hidden=true;output.mode='hidden';restoreSubtitlePositions();return;}
+    }
     const active = twpVideoSubtitles.active(cues, video.currentTime);
     const next=cues.find(cue=>cue.start>video.currentTime);
     const passthrough=sameLanguage(options());
@@ -216,6 +269,7 @@ const twpVideoTranslator = (() => {
     });
   }
   async function pump() {
+    if(selected?.kind==='youtube'&&video?.closest('.html5-video-player')?.classList.contains('ad-showing'))return;
     if (!enabled || running || failed || !video?.isConnected) return;
     const token = epoch, candidates = all ? cues.filter(cue => !translated.has(cue.id)) : twpVideoSubtitles.upcoming(cues, video.currentTime, translated);
     const batch = [];let size = 0;
@@ -235,10 +289,10 @@ const twpVideoTranslator = (() => {
     } finally {clearInterval(ticker);if (token === epoch) {running = false;controls();}}
   }
   async function start() {
-    if (enabled) {stop();return;}
+    if (enabled) {rememberVideo(false);stop();return;}
     if (running || scopeBusy || !video || !sources[$('source').value]) return;
     selected = sources[$('source').value];const source=selected, config = options();
-    if (config.service === 'openai' && !config.profileId) {status('请先在模型与术语设置中添加 AI 服务。', true);return;}
+    if (config.service === 'openai' && !config.profileId && !sameLanguage(config)) {status('请先在模型与术语设置中添加 AI 服务。', true);return;}
     const token = ++epoch;running = true;controls();status('正在载入字幕时间轴…');
     try {
       let loaded;
@@ -247,12 +301,12 @@ const twpVideoTranslator = (() => {
         const deadline = Date.now() + 8000;
         while (!source.track.cues?.length && Date.now() < deadline && epoch === token) await new Promise(resolve => setTimeout(resolve, 150));
         loaded = twpVideoSubtitles.normalize([...(source.track.cues || [])].map(cue => ({start:cue.startTime, end:cue.endTime, text:cue.text})));
-      } else if (source.kind === 'bilibili') loaded = source.cues?.length && source.pageURL===pageURL && source.video===video ? source.cues : (await twpAIClient.call({action:'videoSubtitlesRead', token:source.token, pageURL:location.href})).cues;
+      } else if (['bilibili','youtube'].includes(source.kind)) loaded = source.cues?.length && source.pageURL===pageURL && source.video===video ? source.cues : (await twpAIClient.call({action:source.kind==='youtube'?'youtubeSubtitlesRead':'videoSubtitlesRead', token:source.token, pageURL:location.href})).cues;
       else loaded = source.cues;
       if (token !== epoch || !ui) return;
       cues = loaded;
       if (!cues.length) throw new Error('没有可读取的文字字幕，请开启网站字幕后重新检测，或导入 SRT / VTT。');
-      if(source.kind==='bilibili'){source.cues=loaded;source.video=video;source.pageURL=pageURL;}
+      if(['bilibili','youtube'].includes(source.kind)){source.cues=loaded;source.video=video;source.pageURL=pageURL;}
       $('source-info').textContent=`${source.label} · ${cues.length} 条 · 时间范围 ${new Date(cues[0].start*1000).toISOString().slice(11,19)} – ${new Date(Math.max(...cues.map(cue=>cue.end))*1000).toISOString().slice(11,19)}`;
       // Restart goes through the shared cache so updated saved terminology and
       // cache deletions are respected, rather than reusing stale panel results.
@@ -264,6 +318,7 @@ const twpVideoTranslator = (() => {
       for (const cue of cues) {const target = new VTTCue(cue.start, cue.end, caption(cue));target.line = -3;output.addCue(target);outputCues.set(cue.id, target);}
       video.setAttribute('data-yedu-captions','');document.documentElement.setAttribute('data-yedu-video-running','');output.mode = 'hidden';
       enabled = true;running = false;failed = all = false;syncNativeCaptions();
+      rememberVideo(true);
       const listen = (event, callback) => {video.addEventListener(event, callback);listeners.push(()=>video.removeEventListener(event, callback));};
       for (const event of ['timeupdate','play','pause','ratechange']) listen(event, render);
       listen('seeking', () => {cancelPending();render();void pump();});
@@ -288,6 +343,15 @@ const twpVideoTranslator = (() => {
     if (!video) {detecting=false;sources=[];status('当前页面未找到视频播放器。请在视频所在页面打开此功能。', true);$('source').replaceChildren();controls();return;}
     for (const [index, track] of [...video.textTracks].entries()) if (!ownTracks.has(track) && ['subtitles','captions'].includes(track.kind)) found.push({kind:'native', track, video, language:track.language || 'auto', label:track.label || track.language || `字幕 ${index+1}`, key:pageURL+':track:'+index});
     let notice = '';
+    if(twpYouTubeSubtitles.videoId(location.href)){
+      status('正在读取当前 YouTube 播放器字幕…');
+      try {
+        const result=await twpAIClient.call({action:'youtubeSubtitlesList',pageURL:location.href});
+        if(token!==discovery||!ui)return;
+        notice=result.notice;$('video-info').textContent='字幕来源视频：'+result.title;
+        found.push(...result.tracks.map(track=>({...track,kind:'youtube',video,pageURL,key:result.videoKey+':'+track.trackId})));
+      }catch(error){notice=error.message;}
+    }
     if (/(^|\.)bilibili\.com$/.test(location.hostname)) {
       status('正在读取 B 站字幕列表…');
       try {
@@ -333,13 +397,14 @@ const twpVideoTranslator = (() => {
       sources=found.map(source=>{const old=retained.find(item=>item.key===source.key);return old?{...old,...source}:source;}).concat(retained.filter(source=>!found.some(item=>item.key===source.key)));
     }
     if(previousVideo!==video || !sources.some(source=>source.key===previous?.key)){translated=new Map();cues=[];}
-    $('source').replaceChildren(...sources.map((source,index)=>new Option(source.label+` · ${source.kind==='native'?'网页轨道':source.kind==='import'?'已导入':'B 站'}`,String(index))));
+    $('source').replaceChildren(...sources.map((source,index)=>new Option(source.label+` · ${source.kind==='native'?'网页轨道':source.kind==='import'?'已导入':source.kind==='youtube'?'YouTube':'B 站'}`,String(index))));
     $('source').value=String(twpVideoSubtitles.preferredSource(sources,$('target').value,previousVideo===video?chosenSourceKey:undefined));
     detecting=false;
     $('source-info').textContent=sources.length===1?`只检测到 ${sources[0].label} 一条文字轨道。画面中的英文不一定有独立字幕轨道；可重新检测或导入英文 SRT / VTT。`:`检测到 ${sources.length} 条轨道，翻译中也可直接切换。`;
-    status(sources.length ? notice || `检测到 ${sources.length} 个字幕轨道，默认优先选择原语言字幕。` : notice || 'B 站暂未返回可读字幕。请确认已登录、开启网站字幕后重试，或导入 SRT / VTT；画面内字幕不能作为文字轨道读取。', !sources.length);controls();
+    status(sources.length ? notice || `检测到 ${sources.length} 个字幕轨道，默认优先选择原语言字幕。` : notice || '暂未获取到可读取的字幕轨道。请在网站字幕菜单确认并开启轨道后重试，或导入 SRT / VTT。画面中的文字可能是视频内嵌字幕，并不代表存在文字轨道。', !sources.length);controls();
   }
   function mount(initial) {
+    initial={...savedVideoSettings(),...initial};
     ui = document.createElement('div');ui.id='twp-video-translator';ui.className='notranslate';ui.setAttribute('translate','no');
     ui.style.cssText='all:initial!important;position:fixed!important;right:70px!important;top:24px!important;z-index:2147483647!important;';root=ui.attachShadow({mode:'open'});
     root.innerHTML=`<style>:host{font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;color-scheme:light dark}*{box-sizing:border-box}[hidden]{display:none!important}section{width:360px;max-width:calc(100vw - 90px);max-height:calc(100vh - 48px);overflow:auto;padding:18px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:16px;box-shadow:0 10px 40px #0005}h2{font-size:18px;margin:0}header{display:flex;align-items:center;justify-content:space-between}button,select,input{font:inherit;color:inherit}button,select{cursor:pointer}button{border:1px solid var(--border);border-radius:9px;padding:9px 12px;background:var(--surface)}button:disabled{opacity:.45;cursor:default}button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}select{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.row button{flex:1}#start{width:100%;margin-top:14px;background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:650}#status{font-size:12px;color:var(--muted);white-space:pre-wrap}#status[data-error=true]{color:var(--error)}.hint{font-size:11px;color:var(--muted)}#current{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface);border-radius:8px;padding:10px;max-height:140px;overflow:auto;font-size:13px}#close{border:0;background:none;padding:2px;font-size:12px}#import{max-width:100%;font-size:11px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}</style><link rel="stylesheet" href="${chrome.runtime.getURL('lib/brandTheme.css')}"><section role="dialog" aria-label="视频字幕翻译"><header><h2>视频字幕翻译</h2><button id="close">关闭</button></header><label for="video">当前播放器</label><select id="video"></select><label for="source">原字幕轨道</label><select id="source"></select><button id="detect" style="width:100%;margin-top:8px">重新检测字幕</button><label for="import">或导入此视频的 SRT / VTT</label><input id="import" type="file" accept=".srt,.vtt"><div class="pair"><div><label for="service">翻译服务</label><select id="service"><option value="bing">微软翻译</option><option value="google">谷歌翻译</option><option value="yandex">Yandex</option><option value="openai">AI · 自定义模型</option></select></div><div><label for="target">目标语言</label><select id="target"></select></div></div><div id="profile-row"><label for="profile">模型服务</label><select id="profile"></select></div><div id="ai-options"><label for="expert">此视频页面的 AI 专家</label><select id="expert"></select><label for="glossary">术语库</label><select id="glossary"></select><label for="style">翻译风格</label><select id="style"></select><p id="scope-notice" class="hint"></p><button id="scope-reset">恢复跟随全局</button></div><label for="display">字幕显示</label><select id="display"><option value="bilingual">原文 + 译文</option><option value="translated">仅译文</option></select><button id="start" disabled>开始翻译字幕</button><p id="status" role="status" aria-live="polite"></p><button id="retry" hidden>重试</button><div id="current"></div><div class="row"><button id="all" disabled>翻译全部字幕</button><button id="export" disabled>导出双语 SRT</button></div><p class="hint">默认提前翻译约 60 秒。翻译全部会处理整条字幕轨道；AI 按所选服务计费。原视频和音频不上传。</p></section>`;
@@ -349,6 +414,7 @@ const twpVideoTranslator = (() => {
     root.querySelector('section').id='settings-panel';
     const sourceInfo=document.createElement('p');sourceInfo.id='source-info';sourceInfo.className='hint';$('source').after(sourceInfo);
     const videoInfo=document.createElement('p');videoInfo.id='video-info';videoInfo.className='hint';$('video').after(videoInfo);
+    const aiIntro=document.createElement('div');aiIntro.innerHTML='<p id="ai-service-hint" class="hint"></p><button id="use-ai" type="button">切换到 AI 翻译</button><button id="manage-ai" type="button">管理模型与术语 ↗</button>';$('ai-options').prepend(aiIntro);
     const entrance=document.createElement('template');entrance.innerHTML=`<style>
       #settings-panel{position:relative;z-index:3}
       #player-tools{position:fixed;z-index:2;width:32px;height:32px;color:#f5efe8;pointer-events:auto}
@@ -360,37 +426,65 @@ const twpVideoTranslator = (() => {
       #player-icon[data-enabled=true]{opacity:1;box-shadow:inset 0 -2px #ffad73}
       #player-menu{position:absolute;bottom:calc(100% + 10px);width:236px;padding:8px;background:rgba(22,27,29,.96);border:1px solid #ffffff1c;border-radius:16px;box-shadow:0 6px 24px #0005}
       #player-menu:after{content:'';position:absolute;top:100%;left:0;right:0;height:12px}
-      #player-toggle,#player-settings{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:40px;padding:10px 12px;text-align:left}
-      #player-toggle:hover,#player-settings:hover{background:#ffffff12}
+      #player-toggle,#player-settings,#player-more{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:40px;padding:10px 12px;text-align:left}
+      #player-toggle:hover,#player-settings:hover,#player-more:hover{background:#ffffff12}
+      #player-settings[aria-expanded=true]{background:#ffffff12}
+      #quick-settings{padding:2px 10px 8px;border-top:1px solid #ffffff20;max-height:calc(100vh - 180px);overflow:auto}
+      #quick-settings label{color:#d4cec7;margin:8px 0 4px}
+      #quick-settings select{background:#292e30;color:#fff;border:1px solid #ffffff40;font-size:12px;padding:6px;min-width:0}
+      #quick-settings select:disabled{opacity:.55}
+      #quick-hint{font-size:11px;line-height:1.5;color:#c5beb6;margin:8px 0}
+      #player-more{border-top:1px solid #ffffff20!important;border-radius:0!important;color:#ffbd8e!important}
+      #ai-options{margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:10px}
+      #ai-service-hint{margin-top:0}
+      #use-ai,#manage-ai{font-size:12px;margin:0 4px 4px 0;padding:6px 8px}
       .switch{display:block;width:32px;height:18px;border-radius:12px;background:#736b62;position:relative;flex:none}
       .switch:before{content:'';position:absolute;left:3px;top:3px;width:12px;height:12px;background:white;border-radius:50%;transition:transform .16s}
       #player-toggle[aria-checked=true] .switch{background:#ffad73}
       #player-toggle[aria-checked=true] .switch:before{transform:translateX(14px);background:#29170b}
       #player-state{display:none;position:absolute;bottom:calc(100% + 10px);right:0;width:236px;margin:0;padding:8px 12px;border-radius:8px;background:#201d1a;color:#f5efe8;font-size:11px;overflow-wrap:anywhere}
-      #player-state[data-error=true],#player-state[data-busy=true],#player-state[data-gap=true]{display:block}
+      #player-state[data-active=true][data-error=true],#player-state[data-active=true][data-busy=true],#player-state[data-active=true][data-gap=true]{display:block}
       #player-menu:not([hidden])~#player-state{display:none}
       #player-state[data-error=true]{color:#ffaaa0}
       #captions{position:fixed;z-index:1;transform:translateY(-100%);pointer-events:none;display:flex;flex-direction:column;align-items:center;text-align:center;color:white;font:32px/1.35 Arial,"Microsoft YaHei",sans-serif;text-shadow:0 1px 2px #0008;max-height:45vh;overflow:hidden;background:transparent;padding:0}
       .caption-line{flex:none;width:fit-content;max-width:90%;padding:2px 10px;background:rgba(18,22,23,.84);border-radius:3px;white-space:pre-wrap;overflow-wrap:anywhere}
       #import::file-selector-button{font:inherit;background:var(--surface);color:var(--fg);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer;margin-right:8px}
       @media(prefers-reduced-motion:reduce){.switch:before{transition:none}}
-    </style><div id="player-tools" aria-label="页渡字幕翻译"><button id="player-icon" aria-label="页渡字幕翻译" aria-controls="player-menu" aria-expanded="false"><img alt="" src="${chrome.runtime.getURL('/icons/reading.png')}"></button><div id="player-menu" hidden><button id="player-toggle" role="switch" aria-checked="false"><span>开启字幕翻译</span><span class="switch" aria-hidden="true"></span></button><button id="player-settings" aria-controls="settings-panel" aria-expanded="true" title="选择模型、专家、术语和字幕设置">字幕设置<span aria-hidden="true">›</span></button></div><p id="player-state" role="status" aria-live="polite"></p></div>`;root.append(entrance.content);
+    </style><div id="player-tools" aria-label="页渡字幕翻译"><button id="player-icon" aria-label="页渡字幕翻译" aria-controls="player-menu" aria-expanded="false"><img alt="" src="${chrome.runtime.getURL('/icons/reading.png')}"></button><div id="player-menu" hidden><button id="player-toggle" role="switch" aria-checked="false"><span>开启字幕翻译</span><span class="switch" aria-hidden="true"></span></button><button id="player-settings" aria-controls="quick-settings" aria-expanded="false" title="调整字幕显示、语言和翻译服务">字幕设置<span aria-hidden="true">⌄</span></button><div id="quick-settings" hidden><label for="quick-display">字幕显示</label><select id="quick-display"></select><label for="quick-target">目标语言</label><select id="quick-target"></select><label for="quick-service">翻译服务</label><select id="quick-service"></select><p id="quick-hint"></p><button id="player-more" aria-controls="settings-panel" aria-expanded="false">更多设置<span aria-hidden="true">›</span></button></div></div><p id="player-state" role="status" aria-live="polite"></p></div>`;root.append(entrance.content);
     const captions=document.createElement('div');captions.id='captions';captions.hidden=true;root.append(captions);
     const style=document.createElement('style');style.id='yedu-video-cue-style';style.textContent='video[data-yedu-captions]::cue{background:rgba(0,0,0,.82);color:white;font:20px sans-serif}'+subtitleLayers.split(',').map(selector=>'html[data-yedu-video-running] '+selector.trim()).join(',')+'{visibility:hidden!important}';document.getElementById(style.id)?.remove();document.head.append(style);
     $('service').value=initial.service||pageTranslator.getService();
-    $('display').value='translated';
-    $('target').replaceChildren(...Object.entries(twpLang.getLanguageList()).map(([code,label])=>new Option(label,code)));$('target').value=initial.targetLanguage||twpConfig.get('targetLanguage');
+    $('display').value=initial.display==='bilingual'?'bilingual':'translated';
+    $('target').replaceChildren(...Object.entries(twpLang.getLanguageList()).map(([code,label])=>new Option(label,code)));$('target').value=initial.targetLanguage||'zh-CN';
     $('profile').replaceChildren(...twpConfig.get('aiProfiles').map(profile=>new Option(profile.name+' · '+profile.model,profile.id)));$('profile').value=initial.profileId||twpConfig.get('aiActiveProfile');
     scope=twpAIScopeControls.create({root,fields:{expertId:'expert',glossaryId:'glossary',styleId:'style'},notice:'scope-notice',reset:'scope-reset',scopeLabel:'此视频页面',onSaved:()=>stop('AI 设置已更新，请重新开始翻译。'),onBusy:busy=>{scopeBusy=busy;if(ui)controls();}});scopeReady=scope.load();
-    $('close').onclick=hidePanel;$('player-toggle').onclick=()=>void toggleFromPlayer();$('player-settings').onclick=()=>{if($('settings-panel').hidden)void open();else {hidePanel();setPlayerMenu(false);}};
-    $('player-icon').onclick=()=>setPlayerMenu(true);
+    $('close').onclick=hidePanel;$('player-toggle').onclick=()=>void toggleFromPlayer();
+    $('player-settings').onclick=()=>{const expanded=$('quick-settings').hidden;$('quick-settings').hidden=!expanded;$('player-settings').setAttribute('aria-expanded',String(expanded));syncQuickSettings();positionEntrance();};
+    $('player-more').onclick=()=>void open();
+    for(const id of ['display','target','service'])$('quick-'+id).onchange=()=>{const original=$(id);if(original.disabled)return;original.value=$('quick-'+id).value;original.dispatchEvent(new Event('change'));syncQuickSettings();};
+    $('use-ai').onclick=()=>{$('service').value='openai';$('service').dispatchEvent(new Event('change'));};
+    $('manage-ai').onclick=()=>void twpAIClient.call({action:'aiOpenSettings'}).catch(error=>status(error.message,true));
+    $('player-icon').onclick=()=>setPlayerMenu($('player-menu').hidden);
     $('player-tools').onmouseenter=()=>setPlayerMenu(true);
-    $('player-tools').onmouseleave=()=>{if(!$('player-tools').contains(root.activeElement))setPlayerMenu(false);};
-    root.addEventListener('keydown',event=>{if(event.key==='Escape'){hidePanel();setPlayerMenu(false);$('player-icon').focus();event.stopPropagation();}});
-    root.addEventListener('pointerdown',event=>{if(!event.composedPath().includes($('player-tools')))setPlayerMenu(false);});
+    $('player-tools').addEventListener('focusout',()=>{queueMicrotask(()=>{if(ui&&!$('player-tools').contains(root.activeElement)&&!$('player-tools').matches(':hover'))setPlayerMenu(false);});});
+    // Outside events never enter our ShadowRoot. Listen on the document and
+    // inspect the composed path so interacting with menu controls stays inside.
+    const outside=event=>{if(ui&&!event.composedPath().includes($('player-tools')))setPlayerMenu(false);};
+    // Real page pointer movement dismisses the menu regardless of retained
+    // button/select focus. Native select popups do not dispatch these events,
+    // so opening a language dropdown does not itself dismiss its parent menu.
+    const pointerAway=event=>{if(ui&&!$('player-menu').hidden&&event.pointerType!=='touch')outside(event);};
+    const escapeMenu=event=>{if(!ui||event.key!=='Escape'||($('player-menu').hidden&&$('settings-panel').hidden))return;const inside=event.composedPath().includes(ui);hidePanel();setPlayerMenu(false);if(inside){$('player-icon').focus();event.stopPropagation();}};
+    document.addEventListener('pointerdown',outside,true);document.addEventListener('pointermove',pointerAway,true);document.addEventListener('keydown',escapeMenu,true);
+    removeMenuListeners=()=>{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('pointermove',pointerAway,true);document.removeEventListener('keydown',escapeMenu,true);};
     $('start').onclick=start;$('detect').onclick=()=>void detect();$('video').onchange=()=>{chosenSourceKey=undefined;stop();void detectSources();};$('source').onchange=()=>{const resume=enabled||running;chosenSourceKey=sources[$('source').value]?.key;stop('已切换字幕轨道。');translated=new Map();cues=[];$('source-info').textContent='';controls();if(resume)void start();};
-    for(const id of ['service','profile','target'])$(id).onchange=()=>{stop('翻译设置已更新，请重新开始。');translated=new Map();controls();};
-    $('display').onchange=()=>{syncNativeCaptions();for(const cue of cues){const target=outputCues.get(cue.id);if(target)target.text=caption(cue);}render();};
+    for(const id of ['service','profile','target'])$(id).onchange=()=>{
+      const resume=enabled||running;
+      stop(resume?'翻译设置已切换，正在从当前位置重新翻译…':'翻译设置已更新。');
+      translated=new Map();controls();
+      if(resume)void start();
+    };
+    $('display').onchange=()=>{syncNativeCaptions();for(const cue of cues){const target=outputCues.get(cue.id);if(target)target.text=caption(cue);}render();syncQuickSettings();rememberVideo();};
     $('retry').onclick=()=>{failed=false;controls();void pump();};$('all').onclick=()=>{all=true;controls();void pump();};
     $('import').onchange=async()=>{
       const file=$('import').files[0];if(!file)return;stop();const token=++discovery;
@@ -399,7 +493,7 @@ const twpVideoTranslator = (() => {
     $('export').onclick=()=>{
       const text=twpVideoSubtitles.exportSRT(cues,translated);if(!text)return;const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='video'+(translated.size<cues.length?'.partial':'')+'.bilingual.srt';link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
     };
-    pageURL=location.href;controls();routeClock=setInterval(()=>{if(!ui)return;positionEntrance();if(location.href!==pageURL){detecting=false;stop('已切换视频，请重新检测字幕。');discovery++;pageURL=location.href;sources=[];translated=new Map();$('source').replaceChildren();$('source-info').textContent='';$('video-info').textContent='';controls();scopeReady=scope.load();}},500);
+    pageURL=location.href;controls();routeClock=setInterval(()=>{if(!ui)return;positionEntrance();if(location.href!==pageURL){autoAttempts=0;captionWakeups=0;autoNext=Date.now()+1500;detecting=false;stop('已切换视频，请重新检测字幕。');discovery++;pageURL=location.href;sources=[];translated=new Map();$('source').replaceChildren();$('source-info').textContent='';$('video-info').textContent='';controls();scopeReady=scope.load();}},500);
   }
   async function open(initial={}) {
     if(!ui)mount(initial);
@@ -423,10 +517,22 @@ const twpVideoTranslator = (() => {
     try {if(!chrome.runtime.id){suspended=true;clearInterval(entranceClock);close();return;}}catch{suspended=true;clearInterval(entranceClock);close();return;}
     if(!ui){const found=findPlayer();if(!found)return;mount({});video=found;videos=[found];hidePanel();positionEntrance();}
     else if(!enabled && !running && !video?.isConnected){video=findPlayer();sources=[];positionEntrance();}
+    if(ui&&!enabled&&!running&&!detecting&&!autoRestoring&&video?.readyState>=1&&autoAttempts<3&&Date.now()>=autoNext&&savedVideoSettings().enabled&&!chrome.extension?.inIncognitoContext){
+      autoAttempts++;autoNext=Date.now()+4000;autoRestoring=true;const url=location.href;
+      void (async()=>{await scopeReady;if(!ui||url!==location.href)return;await detect();if(!ui||url!==location.href)return;if(savedVideoSettings().enabled&&sources.length)await start();else if(!sources.length)status('自动检测尚未获取可读字幕，当前未开启翻译。'+$('status').textContent,true);})().catch(error=>{if(ui)status(error.message,true);}).finally(()=>{autoRestoring=false;if(ui)controls();});
+    }
   }
+  // A signed YouTube caption replay can be empty even though the track exists.
+  // Retry after the player's own response arrives, without toggling website CC.
+  // This is only a wake-up hint: the background still validates video/track data.
+  document.addEventListener('yedu-youtube-captions-ready',()=>{
+    if(suspended||enabled||!twpYouTubeSubtitles.videoId(location.href)||!savedVideoSettings().enabled||captionWakeups>=3)return;
+    captionWakeups++;autoAttempts=Math.min(autoAttempts,2);autoNext=Math.max(autoNext,Date.now()+1500);
+  });
   void pageTranslator.ready.then(()=>{if(suspended)return;discoverEntrance();entranceClock=setInterval(discoverEntrance,1500);});
   window.addEventListener('pagehide',()=>{suspended=true;clearInterval(entranceClock);close();});
-  window.addEventListener('pageshow',event=>{if(event.persisted){suspended=false;discoverEntrance();entranceClock=setInterval(discoverEntrance,1500);}});
+  window.addEventListener('pageshow',event=>{if(event.persisted){autoAttempts=0;captionWakeups=0;autoNext=0;suspended=false;discoverEntrance();entranceClock=setInterval(discoverEntrance,1500);}});
+  document.addEventListener('yt-navigate-start',()=>{if(!ui||!twpYouTubeSubtitles.videoId(location.href))return;autoNext=Date.now()+4000;detecting=false;discovery++;stop('正在切换 YouTube 视频，请重新检测字幕。');sources=[];cues=[];translated=new Map();$('source').replaceChildren();$('source-info').textContent='';$('video-info').textContent='';controls();});
   document.addEventListener('fullscreenchange',()=>{if(ui){const element=document.fullscreenElement;((element&&element.tagName!=='VIDEO')?element:document.documentElement).append(ui);positionEntrance();render();}});
   twpConfig.onChanged(name=>{if(!ui)return;if(enabled&&['aiActiveProfile','aiTranslationSettings','aiProfiles','aiCustomExperts','aiCustomGlossaries','aiCacheSettings'].includes(name))stop('模型或缓存设置已变化，请重新开始翻译。');if(['aiProfiles','aiActiveProfile'].includes(name)){refreshProfiles();controls();}});
   return {open,close};

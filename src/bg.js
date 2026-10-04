@@ -30,5 +30,7 @@ importScripts("/background/sidePanel.js");
 importScripts("/background/imageCapture.js");
 importScripts("/lib/videoSubtitles.js");
 importScripts("/background/videoSubtitles.js");
+importScripts("/lib/youtubeSubtitles.js");
+importScripts("/background/youtubeSubtitles.js");
 importScripts("/background/textToSpeech.js");
 importScripts("/background/background.js");

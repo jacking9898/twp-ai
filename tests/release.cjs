@@ -70,7 +70,7 @@ test("both installation ZIPs include licenses, source notice and every registere
     assert.ok(files.has("lib/builtinPresets.js"));
     assert.ok(files.has("options/pdfTypeset.js"));
     assert.ok(files.has("options/pdfMath.js"));
-    for (const asset of ["lib/videoSubtitles.js", "background/videoSubtitles.js", "contentScript/videoTranslator.js"]) assert.ok(files.has(asset), `Missing video subtitle asset: ${asset}`);
+    for (const asset of ["lib/videoSubtitles.js", "background/videoSubtitles.js", "lib/youtubeSubtitles.js", "background/youtubeSubtitles.js", "contentScript/videoTranslator.js"]) assert.ok(files.has(asset), `Missing video subtitle asset: ${asset}`);
     for (const asset of ["options/cache.html", "options/cache.js", "options/cache.css", "background/imageCapture.js", "contentScript/regionTranslator.js", "lib/imageOCR.js", "lib/imageOCRLayout.js", "options/imageTranslation.js", "lib/ocr/worker.bundle.js", "lib/ocr/opencv.js", "lib/ocr/ort/ort-wasm-simd-threaded.mjs", "lib/ocr/ort/ort-wasm-simd-threaded.wasm"]) assert.ok(files.has(asset), `Missing OCR or cache asset: ${asset}`);
     assert.equal(files.get("lib/ocr/ort/ort-wasm-simd-threaded.wasm").subarray(0, 4).toString('hex'), '0061736d');
     assert.doesNotMatch(files.get("lib/ocr/opencv.js").toString(), /\bnew\s+Function\s*\(|\bnew_\s*\(\s*Function\b|\beval\s*\(/);

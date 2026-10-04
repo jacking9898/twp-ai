@@ -23,6 +23,7 @@ const twpConfig = (function () {
     pdfReaderStyle: {font:"sans-serif",size:14,line:1.8,gap:14,margin:28,indent:false,compact:false},
     hoverTranslationSettings: { enabled: false, trigger: "Control", effect: "toggle" },
     selectionTranslationSettings: { trigger: "icon" },
+    videoTranslationPreferences: {}, // Per-site choices and explicitly disabled video IDs; no subtitles or credentials.
     aiProfiles: [], // Public metadata only. Credentials are in background IndexedDB.
     aiActiveProfile: "",
     aiTranslationSettings: { domain: "general", acronyms: "keep", glossary: [] },

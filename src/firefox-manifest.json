@@ -1,6 +1,8 @@
 {
   "manifest_version": 3,
-  "content_security_policy": {"extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"},
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "default_locale": "en",
   "name": "页渡 · Yedu",
   "description": "__MSG_extensionDescriptionAI__",
@@ -75,7 +77,8 @@
     "storage",
     "activeTab",
     "contextMenus",
-    "webRequest"
+    "webRequest",
+    "scripting"
   ],
   "optional_permissions": [
     "webNavigation"
@@ -115,6 +118,19 @@
     "default_title": "__MSG_pageActionTitle__"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "run_at": "document_start",
+      "all_frames": false,
+      "world": "MAIN",
+      "js": [
+        "/contentScript/youtubeCaptionCapture.js"
+      ]
+    },
     {
       "matches": [
         "<all_urls>"
@@ -172,6 +188,7 @@
         "/contentScript/popupMobile.js",
         "/contentScript/regionTranslator.js",
         "/lib/videoSubtitles.js",
+        "/lib/youtubeSubtitles.js",
         "/contentScript/videoTranslator.js",
         "/contentScript/floatingTranslator.js"
       ]
@@ -194,6 +211,8 @@
       "/background/imageCapture.js",
       "/lib/videoSubtitles.js",
       "/background/videoSubtitles.js",
+      "/lib/youtubeSubtitles.js",
+      "/background/youtubeSubtitles.js",
       "/off_screen.js",
       "/background/textToSpeech.js",
       "/background/background.js"

@@ -33,13 +33,32 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     const settings=await context.newPage();await settings.goto(base+'/options/ai.html');
     await settings.locator('#profile-name').fill('Video AI');await settings.locator('#base-url').fill(origin+'/v1');await settings.locator('#model').fill('video-model');await settings.locator('#profile-form button[type=submit]').click();await expect(settings.locator('#profile-status')).toContainText('已保存');
     const profileId=await settings.locator('#profiles').inputValue();await settings.locator('#active-profile').selectOption(profileId);await settings.locator('#engine').selectOption('openai');await settings.locator('#preferences-form button[type=submit]').click();
+    await worker.evaluate(()=>{twpConfig.set('targetLanguage','ja');twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{disabledVideos:['youtube:abcdefghijk']},'www.bilibili.com':{disabledVideos:['bilibili:BV1T84y167U9:p2']}});});
     const page=await context.newPage();await page.goto(origin+'/video');await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
     const dock=page.locator('#twp-floating'),panel=page.locator('#twp-video-translator');
-    const playerClick=async id=>{await panel.locator('#player-icon').hover();await panel.locator('#'+id).click();};
+    const reloadWithoutRestore=async()=>{await worker.evaluate(()=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{disabledVideos:['youtube:abcdefghijk']},'www.bilibili.com':{disabledVideos:['bilibili:BV1T84y167U9:p2']}}));await page.reload();};
+    const playerClick=async id=>{await panel.locator('#player-icon').hover();if(id==='player-settings'){if(!await panel.locator('#quick-settings').isVisible())await panel.locator('#player-settings').click();await panel.locator('#player-more').click();}else await panel.locator('#'+id).click();};
     const open=async()=>{await dock.locator('#toggle').hover();await dock.locator('#settings').click();await dock.locator('#video-tool').click();await expect(panel.locator('#source option')).toHaveCount(2);};
     // The player entrance is automatic, but neither detection nor translation runs before a click.
     let navigations=0;page.on('framenavigated',frame=>{if(frame===page.mainFrame())navigations++;});
     await expect(panel.locator('#player-tools')).toBeVisible();await expect(panel.locator('#settings-panel')).toBeHidden();expect(calls.length).toBe(0);
+    await expect(panel.locator('#target')).toHaveValue('zh-CN');await worker.evaluate(()=>twpConfig.set('targetLanguage','zh-CN'));
+    // Quick settings stay inside the player menu; only More opens the full panel.
+    await panel.locator('#player-icon').hover();await panel.locator('#player-settings').click();await expect(panel.locator('#quick-settings')).toBeVisible();await expect(panel.locator('#settings-panel')).toBeHidden();
+    await panel.locator('#quick-display').selectOption('bilingual');await expect(panel.locator('#display')).toHaveValue('bilingual');await panel.locator('#quick-display').selectOption('translated');
+    await panel.locator('#quick-service').selectOption('google');await expect(panel.locator('#service')).toHaveValue('google');await panel.locator('#quick-target').selectOption('ja');await expect(panel.locator('#target')).toHaveValue('ja');await panel.locator('#quick-target').selectOption('zh-CN');
+    // Focused settings used to keep the menu stuck: outside page clicks never
+    // reach a ShadowRoot listener, and clicking the icon only opened it again.
+    await panel.locator('#player-icon').click();await expect(panel.locator('#player-menu')).toBeHidden();
+    await panel.locator('#player-icon').click();await expect(panel.locator('#player-menu')).toBeVisible();
+    await panel.locator('#quick-target').focus();await page.locator('h1').click();await expect(panel.locator('#player-menu')).toBeHidden();
+    await panel.locator('#player-icon').hover();await expect(panel.locator('#player-menu')).toBeVisible();await panel.locator('#quick-target').focus();await page.keyboard.press('Escape');await expect(panel.locator('#player-menu')).toBeHidden();
+    await page.mouse.move(10,10);await panel.locator('#player-icon').hover();await expect(panel.locator('#player-menu')).toBeVisible();await panel.locator('#player-settings').click();await page.mouse.move(10,10);await expect(panel.locator('#player-menu')).toBeHidden();
+    await panel.locator('#player-icon').hover();if(!await panel.locator('#quick-settings').isVisible())await panel.locator('#player-settings').click();await panel.locator('#quick-target').focus();await page.mouse.move(10,10);await expect(panel.locator('#player-menu')).toBeHidden();
+    await panel.locator('#player-icon').hover();
+    await page.screenshot({path:path.resolve('build/video-quick-settings-preview.png')});
+    await panel.locator('#player-more').click();for(const field of ['expert','glossary','style'])await expect(panel.locator('#'+field)).toBeVisible();await expect(panel.locator('#ai-service-hint')).toContainText('切换到');
+    await panel.locator('#use-ai').click();await expect(panel.locator('#service')).toHaveValue('openai');await expect(panel.locator('#profile-row')).toBeVisible();await panel.locator('#close').click();
     const entranceRect=await panel.locator('#player-tools').boundingBox(),videoRect=await page.locator('video').boundingBox();expect(entranceRect.y).toBeGreaterThanOrEqual(videoRect.y+videoRect.height);expect(entranceRect.y).toBeLessThanOrEqual(videoRect.y+videoRect.height+12);
     // Services edited after automatic entrance creation are still available in settings.
     await worker.evaluate(()=>twpConfig.set('aiProfiles',twpConfig.get('aiProfiles').map(profile=>({...profile,name:profile.name+' updated'}))));
@@ -52,7 +71,9 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await expect(panel.locator('#current')).toContainText('视频译文：Early sentence 0');
     await expect(panel.locator('#captions')).toBeVisible();await expect(panel.locator('#captions')).toContainText('视频译文：Early sentence 0');
     await expect(panel.locator('#settings-panel')).toBeHidden();await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','true');expect(await panel.locator('#captions').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');expect((await panel.locator('.caption-line').first().boundingBox()).width).toBeLessThan(videoRect.width);
+    await panel.locator('#player-icon').hover();await expect(panel.locator('#quick-service')).toBeEnabled();await expect(panel.locator('#quick-target')).toBeEnabled();await panel.locator('#quick-display').selectOption('bilingual');await expect(panel.locator('#captions')).toContainText('Early sentence 0');await panel.locator('#quick-display').selectOption('translated');expect(calls.length).toBe(2);
     expect(navigations).toBe(0);expect(await page.evaluate(()=>document.querySelector('video').currentTime)).toBeCloseTo(1.2,1);
+    await page.locator('h1').click();await expect(panel.locator('#player-menu')).toBeHidden();await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','true');await expect(panel.locator('#captions')).toBeVisible();
     await page.screenshot({path:path.resolve('build/video-immersive-preview.png')});
     await playerClick('player-settings');await expect(panel.locator('#settings-panel')).toBeVisible();expect(calls.length).toBe(2);
     const trackState=()=>page.evaluate(()=>[...document.querySelector('video').textTracks].map(track=>({label:track.label,mode:track.mode,cues:[...(track.cues||[])].map(cue=>({start:cue.startTime,end:cue.endTime,text:cue.text}))})));
@@ -79,14 +100,15 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await panel.locator('#service').selectOption('bing');await panel.locator('#start').click();await expect(panel.locator('#current')).toContainText('免费字幕：Imported lecture line.');expect((await worker.evaluate(()=>self.videoFree)).service).toBe('bing');await panel.locator('#start').click();
     await page.setViewportSize({width:384,height:880});expect(await panel.boundingBox()).toMatchObject({width:294});expect(await page.evaluate(()=>document.querySelector('#twp-video-translator').getBoundingClientRect().left)).toBeGreaterThanOrEqual(0);await panel.screenshot({path:path.resolve('build/video-panel-narrow.png')});await panel.locator('#close').click();
     // Real extension background + deterministic Bilibili metadata and subtitle network replies.
+    let delayedBiliControls=true;
     await context.route('https://www.bilibili.com/**',route=>{
       if(new URL(route.request().url()).pathname==='/video.wav'){
         const range=route.request().headers().range?.match(/bytes=(\d+)-(\d*)/),start=range?Number(range[1]):0,end=range&&range[2]?Math.min(Number(range[2]),wav.length-1):wav.length-1;
         return route.fulfill({status:range?206:200,headers:{'content-type':'audio/wav','accept-ranges':'bytes',...(range?{'content-range':`bytes ${start}-${end}/${wav.length}`}:{})},body:wav.subarray(start,end+1)});
-      }return route.fulfill({contentType:'text/html',body:html(false)});
+      }return route.fulfill({contentType:'text/html',body:delayedBiliControls?html(false).replace('class="bpx-player-container"','class=""').replace(/<div class="bpx-player-control-bottom-right">.*?<\/div>/,''):html(false)});
     });
     await context.route('https://api.bilibili.com/**',route=>{
-      const url=new URL(route.request().url());apiRequests.push(url.href);const data=url.pathname==='/x/web-interface/view'?{aid:123,title:'Bilibili subtitle fixture',pages:[{page:1,cid:10},{page:2,cid:20}]}:{need_login_subtitle:emptyList,subtitle:{subtitles:emptyList?[]:[{lan:'zh',lan_doc:'中文',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/chinese.json'},{lan:'en',lan_doc:'English',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/test.json'}]}};
+      const url=new URL(route.request().url());apiRequests.push(url.href);const data=url.pathname==='/x/web-interface/view'?{aid:123,title:'Bilibili subtitle fixture',pages:[{page:1,cid:10},{page:2,cid:20}]}:{need_login_subtitle:emptyList,subtitle:{subtitles:emptyList?[]:[{lan:'zh-TW',lan_doc:'中文',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/chinese.json'},{lan:'en',lan_doc:'English',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/test.json'}]}};
       if(partialList&&data.subtitle)data.subtitle.subtitles=data.subtitle.subtitles.slice(0,1);return route.fulfill({contentType:'application/json',body:JSON.stringify({code:0,data})});
     });
     await context.route('https://aisubtitle.hdslb.com/**',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({body:route.request().url().includes('chinese.json')?Array.from({length:31},(_,i)=>({from:i*2,to:i*2+2,content:'我喜欢鱼。'})):rows.map(row=>({from:row.start,to:row.end,content:row.text}))})}));
@@ -97,6 +119,15 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     });
     await context.addCookies([{name:'video_test',value:'session',domain:'.bilibili.com',path:'/',secure:true,sameSite:'Lax'}]);emptyList=false;partialList=true;pageFallback=true;
     await page.setViewportSize({width:1280,height:940});await page.goto('https://www.bilibili.com/video/BV1T84y167U9?p=2');await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
+    await expect(panel).toBeAttached();await expect(panel.locator('#player-tools')).toBeHidden();
+    // Refresh creates an empty control row first. Our own 32px slot must not
+    // make that unfinished row count as ready (the old icon appeared bottom-left).
+    await page.evaluate(()=>{const player=document.querySelector('#player');player.className='bpx-player-container';const bar=document.createElement('div');bar.className='bpx-player-control-bottom-right';bar.style.cssText='left:0;right:auto';player.append(bar);});
+    await page.waitForTimeout(650);await expect(panel.locator('#player-tools')).toBeHidden();
+    await page.locator('.bpx-player-control-bottom-right').evaluate(bar=>{bar.innerHTML='<span class="native-controls">4K 超高清　倍速　字幕　音量　设置　全屏</span>';});
+    await page.waitForTimeout(650);await expect(panel.locator('#player-tools')).toBeHidden();
+    await page.locator('.bpx-player-control-bottom-right').evaluate(bar=>{bar.style.cssText='display:none';bar.innerHTML='<span class="native-controls">4K 超高清　倍速　字幕　音量　设置　全屏</span>';});
+    await expect(panel.locator('#player-tools')).toBeHidden();await page.locator('.bpx-player-control-bottom-right').evaluate(el=>el.style.display='flex');delayedBiliControls=false;
     await expect(panel.locator('#player-tools')).toBeVisible();expect(apiRequests.length).toBe(0);await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await playerClick('player-toggle');await expect(panel.locator('#source option')).toHaveCount(2);await expect(panel.locator('#source')).toHaveValue('1');expect(apiRequests.some(url=>url.includes('cid=20'))).toBe(true);
     await expect(panel.locator('#status')).toContainText('已翻译 10 / 14');await expect(panel.locator('#current')).toContainText('视频译文');await expect(panel.locator('#settings-panel')).toBeHidden();await playerClick('player-settings');
     expect(pageReads).toBe(1);pageFallback=false;emptyList=false;partialList=false;
@@ -113,7 +144,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await expect(panel.locator('#source option').nth(2)).toContainText('English');
     // Restore the baseline; the new, unread track is not retained on reload.
     await page.unroute('https://api.bilibili.com/x/player/wbi/v2*');
-    partialList=false;await page.reload();await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
+    partialList=false;await reloadWithoutRestore();await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
     await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await playerClick('player-toggle');await expect(panel.locator('#current')).toContainText('Early sentence 0');await playerClick('player-settings');
     // The row's padding is not the visible label centre (actual Bilibili layout).
     await page.locator('.native-controls').evaluate(el=>{el.style.transform='translateY(-7px)';});
@@ -127,7 +158,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     for(const mode of ['translated','bilingual','translated','bilingual']){await panel.locator('#display').selectOption(mode);await expect(panel.locator('#captions')).toBeVisible();expect(await panel.locator('#captions').innerText()).toBe(mode==='translated'?'视频译文：Early sentence 0: vector space and eigenvalues.':'Early sentence 0: vector space and eigenvalues.\n视频译文：Early sentence 0: vector space and eigenvalues.');}
     // Full reload destroys the content-script memory. A partial API response
     // must still offer the English timeline read earlier in this tab.
-    partialList=true;await page.reload();await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
+    partialList=true;await reloadWithoutRestore();await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
     await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await playerClick('player-toggle');
     await expect(panel.locator('#source option')).toHaveCount(2);await expect(panel.locator('#source')).toHaveValue('1');
     await expect(panel.locator('#current')).toContainText('Early sentence 0');await playerClick('player-settings');partialList=false;
@@ -208,6 +239,106 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await panel.locator('#start').click();await expect.poll(currentRendererSeparated).toBe(true);
     await page.evaluate(()=>history.pushState({},'', '?p=1'));await expect(panel.locator('#status')).toContainText('切换视频');expect((await trackState()).at(-1).cues.length).toBe(0);await expect(panel.locator('#start')).toBeDisabled();
     await panel.locator('#close').click();expect(errors).toEqual([]);
-    console.log('Video translation passed: bottom controls, original-language preference, Chinese deduplication, display switching, page-login fallback with same-site credentials, retention after empty lists, track coverage diagnostics, both fullscreen modes, lookahead, cache, cancellation, imports, exports and SPA cleanup.');
+    // YouTube uses its page-owned player response. Exercise the actual MAIN
+    // world bridge in the unpacked extension, not a mocked extension message.
+    const youtubeId='abcdefghijk',youtubeRequests=[];let youtubeEmptyReplies=false;
+    const youtubeTracks=[{languageCode:'zh',name:{simpleText:'Chinese'},vssId:'.zh'}, {languageCode:'en',name:{simpleText:'English'},vssId:'.en'}, {languageCode:'en',name:{runs:[{text:'English'}]},vssId:'a.en',kind:'asr'}, {languageCode:'fr',name:{simpleText:'French'},vssId:'.fr'}].map(track=>({...track,baseUrl:`https://www.youtube.com/api/timedtext?v=${youtubeId}&lang=${track.languageCode}&fmt=json3${track.kind?'&kind=asr':''}`}));
+    youtubeTracks.push({languageCode:'de',name:{simpleText:'Hostile'},baseUrl:'https://evil.example/captions'});
+    const ytResponse={videoDetails:{videoId:youtubeId,title:'YouTube subtitle lesson'},captions:{playerCaptionsTracklistRenderer:{captionTracks:youtubeTracks}}};
+    await context.route('https://www.youtube.com/**',async route=>{
+      const url=new URL(route.request().url());
+      if(url.pathname==='/video.wav'){const range=route.request().headers().range?.match(/bytes=(\d+)-(\d*)/),start=range?Number(range[1]):0,end=range&&range[2]?Math.min(Number(range[2]),wav.length-1):wav.length-1;return route.fulfill({status:range?206:200,contentType:'audio/wav',headers:{'accept-ranges':'bytes',...(range?{'content-range':`bytes ${start}-${end}/${wav.length}`}:{})},body:wav.subarray(start,end+1)});}
+      if(url.pathname==='/api/timedtext'){
+        youtubeRequests.push(url.href);if(youtubeEmptyReplies)return route.fulfill({status:200,body:''});expect(url.searchParams.get('v')).toBe(youtubeId);expect(url.searchParams.get('fmt')).toBe('json3');
+        if(url.searchParams.get('lang')==='fr')return route.fulfill({contentType:'text/xml',body:'<transcript><text start="1" dur="3">Bonjour &amp; bienvenue</text></transcript>'});
+        const automatic=url.searchParams.get('kind')==='asr';
+        return route.fulfill({contentType:'application/json',body:JSON.stringify({events:automatic?[{tStartMs:1000,dDurationMs:3000,wWinId:1,segs:[{utf8:'Automatic'}]},{tStartMs:2000,dDurationMs:2000,wWinId:1,aAppend:1,segs:[{utf8:' line'}]}]:[{tStartMs:1000,dDurationMs:3000,segs:[{utf8:url.searchParams.get('lang')==='zh'?'这是中文字幕':'Hello YouTube'}]},{tStartMs:100000,dDurationMs:3000,segs:[{utf8:'Later YouTube line'}]}]})});
+      }
+      const markup=html(false).replaceAll('bpx-player-container','html5-video-player').replace('id="player"','id="movie_player"').replaceAll('.bpx-player-control-bottom-right','.ytp-right-controls').replace('class="bpx-player-control-bottom-right"','class="ytp-right-controls"');
+      return route.fulfill({contentType:'text/html',body:markup+`<style>#movie_player{width:960px;position:relative}#movie_player video{display:block;width:720px;margin:auto}.ytp-chrome-bottom{position:absolute;bottom:0;left:0;width:100%;height:48px;pointer-events:none}.ytp-chrome-bottom .ytp-right-controls{pointer-events:auto}.ytp-autohide .ytp-chrome-bottom{opacity:0}.caption-window{position:absolute;bottom:14px;left:15%;width:70%;text-align:center;font:28px/1.5 Arial;pointer-events:none}.ytp-caption-segment{background:#141414cc;padding:2px 8px;box-decoration-break:clone}.html5-video-player:not(.ytp-autohide) .caption-window{bottom:65px}</style><script>window.fixturePlayerResponse=${JSON.stringify(ytResponse)};const player=document.querySelector('#movie_player');player.getPlayerResponse=()=>window.fixturePlayerResponse;player.getVideoData=()=>({video_id:window.fixturePlayerResponse.videoDetails.videoId});const bar=document.createElement('div');bar.className='ytp-chrome-bottom';bar.append(document.querySelector('.ytp-right-controls'));player.append(bar);const caption=document.createElement('div');caption.className='caption-window';caption.innerHTML='<span class="ytp-caption-segment">Hello YouTube</span>';player.append(caption);</script>`});
+    });
+    await worker.evaluate(()=>{translationService.translateText=async(service,source,target,texts)=>texts.map(text=>'译文：'+text);});
+    await page.goto('https://www.youtube.com/watch?v='+youtubeId);await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
+    await expect(panel.locator('#player-tools')).toBeVisible();expect(youtubeRequests).toHaveLength(0);
+    // The site receives subtitles, but a second request would return an empty body.
+    await page.evaluate(url=>fetch(url).then(reply=>reply.text()),youtubeTracks[1].baseUrl);await expect.poll(()=>page.evaluate(url=>!!window.__yeduYouTubeCaptionsV1?.read(url),youtubeTracks[1].baseUrl)).toBe(true);youtubeEmptyReplies=true;
+    await playerClick('player-settings');await expect(panel.locator('#source option')).toHaveCount(4).catch(async error=>{console.error('YouTube detection:',await panel.locator('#status').innerText(),errors);throw error;});await expect(panel.locator('#source')).toHaveValue('1');await expect(panel.locator('#video-info')).toContainText('YouTube subtitle lesson');
+    for(const field of ['expert','glossary','style'])await expect(panel.locator('#'+field)).toBeVisible();
+    await panel.locator('#service').selectOption('bing');await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await panel.locator('#start').click();
+    await expect(panel.locator('#captions')).toHaveText('译文：Hello YouTube').catch(async error=>{console.error('YouTube translation:',await panel.locator('#status').innerText(),await panel.locator('#current').innerText(),youtubeRequests,errors);throw error;});expect(youtubeRequests).toHaveLength(1);youtubeEmptyReplies=false;
+    const ytSeparated=async()=>{const original=await page.locator('.ytp-caption-segment').boundingBox(),translation=await panel.locator('#captions').boundingBox();return original.y+original.height<=translation.y-5;};
+    await expect.poll(ytSeparated).toBe(true);await page.locator('#movie_player').evaluate(el=>el.classList.add('ytp-autohide'));await expect.poll(ytSeparated).toBe(true);
+    await panel.locator('#close').click();await page.screenshot({path:path.resolve('build/youtube-subtitles-preview.png')});
+    await page.locator('#movie_player').evaluate(el=>el.classList.remove('ytp-autohide'));await playerClick('player-settings');
+    await panel.locator('#display').selectOption('bilingual');await expect(page.locator('.ytp-caption-segment')).toBeHidden();await expect(panel.locator('#captions')).toHaveText('Hello YouTube译文：Hello YouTube');
+    await panel.locator('#display').selectOption('translated');await expect(page.locator('.ytp-caption-segment')).toBeVisible();
+    await page.locator('#movie_player').evaluate(el=>el.classList.add('ad-showing'));await expect(panel.locator('#captions')).toBeHidden();
+    await page.locator('#movie_player').evaluate(el=>el.classList.remove('ad-showing'));await expect(panel.locator('#captions')).toBeVisible();
+    await panel.locator('#source').selectOption('2');await expect(panel.locator('#captions')).toHaveText('译文：Automatic line');
+    await panel.locator('#source').selectOption('3');await expect(panel.locator('#captions')).toHaveText('译文：Bonjour & bienvenue');
+    await panel.locator('#source').selectOption('1');await page.evaluate(()=>document.querySelector('video').currentTime=100.2);await expect(panel.locator('#captions')).toHaveText('译文：Later YouTube line');
+    await page.locator('#movie_player').evaluate(el=>el.requestFullscreen());await expect(panel.locator('#captions')).toBeVisible();await expect.poll(ytSeparated).toBe(true);await page.evaluate(()=>document.exitFullscreen());
+    await panel.locator('#start').click();expect(await page.locator('.caption-window').evaluate(el=>el.style.translate)).toBe('');
+    await panel.locator('#start').click();await expect(panel.locator('#captions')).toBeVisible();
+    // Refresh drops old data; capture the website's new XHR response, not an old
+    // timeline or a replay. Replayed signed URLs deliberately return HTTP 200 empty.
+    await reloadWithoutRestore();await expect(panel.locator('#player-tools')).toBeVisible();
+    expect(await page.evaluate(url=>window.__yeduYouTubeCaptionsV1?.read(url),youtubeTracks[1].baseUrl)).toBeNull();
+    youtubeEmptyReplies=true;await playerClick('player-settings');await panel.locator('#service').selectOption('bing');await panel.locator('#start').click();await expect(panel.locator('#status')).toContainText('正文请求返回为空');await expect(panel.locator('#captions')).toBeHidden();
+    youtubeEmptyReplies=false;
+    await page.evaluate(url=>new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open('GET',url);xhr.onload=resolve;xhr.onerror=reject;xhr.send();}),youtubeTracks[1].baseUrl);
+    await expect.poll(()=>page.evaluate(url=>!!window.__yeduYouTubeCaptionsV1?.read(url),youtubeTracks[1].baseUrl)).toBe(true);youtubeEmptyReplies=true;const beforeReplay=youtubeRequests.length;
+    await playerClick('player-settings');await panel.locator('#service').selectOption('bing');await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await panel.locator('#start').click();await expect(panel.locator('#captions')).toHaveText('译文：Hello YouTube');expect(youtubeRequests.length).toBe(beforeReplay);
+    // Switch while a previous service response is still pending. Late replies
+    // must never overwrite the new language, and playback position is preserved.
+    await worker.evaluate(()=>{self.liveSwitchCalls=[];translationService.translateText=async(service,source,target,texts)=>{self.liveSwitchCalls.push({service,target});if(service==='google'&&target==='zh-CN')await new Promise(resolve=>setTimeout(resolve,1000));return texts.map(text=>service+'/'+target+':'+text);};});
+    await panel.locator('#service').selectOption('google');await expect.poll(()=>worker.evaluate(()=>self.liveSwitchCalls.length)).toBe(1);
+    await panel.locator('#close').click();await panel.locator('#player-icon').hover();if(!await panel.locator('#quick-settings').isVisible())await panel.locator('#player-settings').click();
+    await panel.locator('#quick-target').selectOption('ja');await expect(panel.locator('#captions')).toHaveText('google/ja:Hello YouTube');await page.waitForTimeout(1100);await expect(panel.locator('#captions')).toHaveText('google/ja:Hello YouTube');
+    await panel.locator('#quick-service').selectOption('bing');await expect(panel.locator('#captions')).toHaveText('bing/ja:Hello YouTube');await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','true');expect(await page.evaluate(()=>document.querySelector('video').currentTime)).toBeCloseTo(1.2,1);
+    await playerClick('player-settings');await expect(panel.locator('#target')).toHaveValue('ja');await panel.locator('#start').click();
+    await settings.locator('#new-profile').click();await settings.locator('#profile-name').fill('Second model');await settings.locator('#base-url').fill(origin+'/v1');await settings.locator('#model').fill('video-second-model');await settings.locator('#profile-form button[type=submit]').click();await expect(settings.locator('#profile-status')).toContainText('已保存');const secondProfileId=await settings.locator('#profiles').inputValue();
+    await expect(panel.locator('#profile option')).toHaveCount(2);await panel.locator('#service').selectOption('openai');await panel.locator('#start').click();await expect(panel.locator('#captions')).toContainText('视频译文');
+    const beforeModelSwitch=calls.length;await panel.locator('#profile').selectOption(secondProfileId);await expect.poll(()=>calls.length).toBeGreaterThan(beforeModelSwitch).catch(async error=>{console.error('Model switch',await panel.locator('#status').innerText(),await panel.locator('#profile').inputValue());throw error;});await expect(panel.locator('#captions')).toContainText('视频译文');expect(calls.at(-1).body.model).toBe('video-second-model');await expect(panel.locator('#start')).toHaveText('停止视频翻译');
+    // Remember successful enable/settings across reload, but never re-enable
+    // after the user explicitly turns translation off.
+    youtubeEmptyReplies=false;await page.reload();await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:12000});await expect(panel.locator('#service')).toHaveValue('openai');await expect(panel.locator('#profile')).toHaveValue(secondProfileId);await expect(panel.locator('#target')).toHaveValue('ja');
+    await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toContainText('视频译文');await playerClick('player-settings');await panel.locator('#start').click();
+    await expect.poll(()=>worker.evaluate(()=>twpConfig.get('videoTranslationPreferences')['www.youtube.com'].disabledVideos)).toEqual(['youtube:'+youtubeId]);
+    await page.reload();await expect(panel.locator('#player-tools')).toBeVisible();await page.waitForTimeout(2000);await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(panel.locator('#settings-panel')).toBeHidden();await playerClick('player-settings');await panel.locator('#start').click();
+    await page.evaluate(()=>{document.dispatchEvent(new Event('yt-navigate-start'));history.pushState({},'', '/watch?v=lmnopqrstuv');window.fixturePlayerResponse={videoDetails:{videoId:'lmnopqrstuv',title:'No subtitle lesson'}};document.dispatchEvent(new Event('yt-navigate-finish'));});
+    await page.waitForTimeout(5000);await expect(panel.locator('#player-state')).toBeHidden();await expect(panel.locator('#source option')).toHaveCount(0);
+    await expect(panel.locator('#captions')).toBeHidden();await expect(panel.locator('#start')).toBeDisabled();await panel.locator('#detect').click();await expect(panel.locator('#status')).toContainText('没有可读取的字幕');await expect(panel.locator('#source option')).toHaveCount(0);
+    // Restoring a site's saved preference on a video with no readable tracks
+    // must not open settings or leave a warning above the inactive icon.
+    await worker.evaluate(()=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{enabled:true,service:'bing'}}));await page.reload();await expect(panel.locator('#player-tools')).toBeVisible();await page.waitForTimeout(5000);await expect(panel.locator('#source option')).toHaveCount(0);await expect(panel.locator('#player-state')).toBeHidden();
+    const readableCaptions=ytResponse.captions;ytResponse.captions=undefined;
+    await worker.evaluate(id=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{service:'bing',targetLanguage:'zh-CN',display:'translated'}}),youtubeId);
+    const beforeSilentRestore=calls.length,requestsBeforeSilentRestore=youtubeRequests.length;
+    await page.goto('https://www.youtube.com/watch?v='+youtubeId);
+    await expect(panel.locator('#status')).toContainText('自动检测尚未获取可读字幕',{timeout:12000});
+    await expect(panel.locator('#settings-panel')).toBeHidden();await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(panel.locator('#player-state')).toBeHidden();
+    await page.waitForTimeout(10000);await expect(panel.locator('#player-state')).toBeHidden();expect(calls.length).toBe(beforeSilentRestore);expect(youtubeRequests.length).toBe(requestsBeforeSilentRestore);
+    await playerClick('player-settings');await expect(panel.locator('#status')).toContainText('没有可读取的字幕');await panel.locator('#close').click();await page.mouse.move(10,10);await expect(panel.locator('#player-state')).toBeHidden();
+    // New videos with readable tracks automatically start, preferring English.
+    ytResponse.captions=readableCaptions;youtubeEmptyReplies=false;
+    await worker.evaluate(()=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{service:'bing'}}));await page.reload();
+    await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:12000});await expect(panel.locator('#source')).toHaveValue('1');await expect(panel.locator('#target')).toHaveValue('zh-CN');await expect(panel.locator('#settings-panel')).toBeHidden();
+    await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toContainText('Hello YouTube');
+    // Empty signed replies exhaust initial attempts. A later website response
+    // wakes translation without another click, using captured text instead.
+    youtubeEmptyReplies=true;await page.reload();await expect(panel.locator('#status')).toContainText('正文请求返回为空',{timeout:12000});await page.waitForTimeout(11000);await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(panel.locator('#player-state')).toBeHidden();
+    youtubeEmptyReplies=false;await page.evaluate(url=>fetch(url).then(r=>r.text()),youtubeTracks[1].baseUrl);youtubeEmptyReplies=true;
+    await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:10000});await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toContainText('Hello YouTube');
+    await playerClick('player-toggle');await page.reload();await expect(panel.locator('#player-tools')).toBeVisible();await page.evaluate(()=>document.dispatchEvent(new Event('yedu-youtube-captions-ready')));await page.waitForTimeout(5000);await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(panel.locator('#source option')).toHaveCount(0);
+    // A Chinese-only track is shown directly, without calling any translator.
+    youtubeEmptyReplies=false;ytResponse.captions={playerCaptionsTracklistRenderer:{captionTracks:[youtubeTracks[0]]}};
+    await page.goto('about:blank');await worker.evaluate(()=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{service:'bing'}}));const beforeYouTubeChinese=await worker.evaluate(()=>self.liveSwitchCalls.length);await page.goto('https://www.youtube.com/watch?v='+youtubeId);
+    await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:12000});await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toHaveText('这是中文字幕');expect(await worker.evaluate(()=>self.liveSwitchCalls.length)).toBe(beforeYouTubeChinese);
+    // Reload the real extension while its old video UI and timers remain live.
+    const restarted=context.waitForEvent('serviceworker',w=>w.url().includes(base.split('/')[2]));await worker.evaluate(()=>chrome.runtime.reload()).catch(error=>{if(!/closed|destroyed|Target/i.test(error.message))throw error;});await restarted;
+    await expect(panel).toHaveCount(0,{timeout:6000});await page.evaluate(()=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));document.dispatchEvent(new Event('yedu-youtube-captions-ready'));});
+    expect(errors).toEqual([]);
+    console.log('Video translation passed: Bilibili and YouTube player controls, subtitle discovery, manual/ASR/XML tracks, MAIN-world bridge, language selection, layout, hover, ads, fullscreen, cache, cancellation, imports, exports and SPA cleanup.');
   }finally{await context.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
