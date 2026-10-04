@@ -18,12 +18,12 @@ const twpPDFDocument = (() => {
     function clearAuto() { clearTimeout(autoTimer); readyPage = null; }
     function scheduleAuto() {
       clearAuto();
-      if (!pdf || !twpPDFToggle.get($("pdf-auto-translate"))) return;
+      if (!pdf || $("pdf-ai-dialog")?.open || !twpPDFToggle.get($("pdf-auto-translate"))) return;
       // One settled reading page, not a queue of every page crossed while scrolling.
       autoTimer = setTimeout(() => { readyPage = reader.pageNumber(); pumpAuto(); }, 650);
     }
     function pumpAuto() {
-      if (!pdf || busy || !twpPDFToggle.get($("pdf-auto-translate")) || readyPage !== reader.pageNumber()) return;
+      if (!pdf || busy || $("pdf-ai-dialog")?.open || !twpPDFToggle.get($("pdf-auto-translate")) || readyPage !== reader.pageNumber()) return;
       const number = readyPage; readyPage = null;
       if (!results.has(number) && !errors.has(number)) void run(false, {page: number, automatic: true});
     }
@@ -95,12 +95,13 @@ const twpPDFDocument = (() => {
           const text = layout.text;
           const document = text.trim() ? twpDocumentTranslation.parse(text, "txt") : null;
           if (document) for (const segment of document.segments) segment.chunkId = layout.blocks.find(block=>segment.start>=block.start && segment.start<block.end).id;
-          // Keep image-only formulas addressable for rendering/export, but never
+          // Keep preserved graphics addressable for rendering/export, but never
           // submit their private glyph codes or placeholder text for translation.
-          const prose=document?.segments.filter(segment=>layout.blocks[segment.chunkId].kind!=='formula')||[];
-          const translated=prose.length ? await translateDocument({...document,segments:prose}, settings.service, settings.target, {...settings.options, documentKey: `pdf:${fingerprint}`, forceRefresh, context: `PDF ${fingerprint} page ${number} layout-v9-inline-sums`}, () => token === generation) : [];
+          const keep=block=>['formula','figure','artwork'].includes(block.kind) || (/^(?:\d+|[ivxlcdm]+)$/i.test(block.text.trim()) && (block.bounds?.y<.2 || block.bounds?.y>.8));
+          const prose=document?.segments.filter(segment=>!keep(layout.blocks[segment.chunkId])).map(segment=>({...segment,text:layout.blocks[segment.chunkId].entry?.title||segment.text}))||[];
+          const translated=prose.length ? await translateDocument({...document,segments:prose}, settings.service, settings.target, {...settings.options, documentKey: `pdf:${fingerprint}`, forceRefresh, context: `PDF ${fingerprint} page ${number} layout-v11-figure-headers-notes`}, () => token === generation) : [];
           let translatedIndex=0;
-          const translations=document?document.segments.map(segment=>layout.blocks[segment.chunkId].kind==='formula'?segment.text:translated[translatedIndex++]):[];
+          const translations=document?document.segments.map(segment=>{const block=layout.blocks[segment.chunkId];if(keep(block))return segment.text;const value=translated[translatedIndex++];return block.entry?block.entry.prefix+value+block.entry.suffix:value;}):[];
           if (token !== generation) return;
           results.set(number, {document, translations, target: settings.target});
           pending.delete(number);
@@ -142,9 +143,9 @@ const twpPDFDocument = (() => {
       const active=pdf,key=fingerprint,page=reader.pageNumber(),layout=await reader.getLayout(page);
       if(active!==pdf)throw new Error('文件已切换，请重试');
       const settings=readSettings();
-      return twpAIClient.call({action:'aiInsightOpen',documentKey:'pdf:'+key,text:layout.blocks.filter(b=>b.kind!=='formula').map(b=>b.text).join('\n\n'),title:`${fileName} · 第 ${page} 页（术语属于整份 PDF）`,targetLanguage:settings.target,profileId:settings.options.profileId});
+      return twpAIClient.call({action:'aiInsightOpen',documentKey:'pdf:'+key,text:layout.blocks.filter(b=>!['formula','figure','artwork'].includes(b.kind)).map(b=>b.text).join('\n\n'),title:`${fileName} · 第 ${page} 页（术语属于整份 PDF）`,targetLanguage:settings.target,profileId:settings.options.profileId});
     }
-    return {insights,open, close, run, reset, updateControls, renderTranslation, cancel, scheduleAuto, view:reader,
+    return {insights,open, close, run, reset, updateControls, renderTranslation, cancel, scheduleAuto, view:reader, documentKey:() => pdf ? 'pdf:'+fingerprint : null,
       isAutoTranslating: () => automatic, hasPDF: () => !!pdf};
   }
   return {create, extractText};

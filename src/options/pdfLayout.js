@@ -46,9 +46,10 @@ const twpPDFLayout = (() => {
     }
     return panels;
   }
-  function extract(items, styles = {}, viewport, graphics = []) {
+  function extract(items, styles = {}, viewport, graphics = [], pictures = []) {
     const math=typeof module!=="undefined"?require('./pdfMath.js'):twpPDFMath;
-    const formulas=math.detect(items,styles,viewport),preserved=new Set(formulas.flatMap(f=>[...f.items]));
+    const imageItems=new Set(pictures.flatMap(f=>[...f.items]));
+    const formulas=math.detect(items.filter(item=>!imageItems.has(item)),styles,viewport),preserved=new Set([...imageItems,...formulas.flatMap(f=>[...f.items])]);
     items=items.filter(item=>!preserved.has(item));
     const lines = []; let line;
     const scripts={super:Object.fromEntries([..."0123456789+-−=()nijkx"].map((c,i)=>[c,[..."⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁻⁼⁽⁾ⁿⁱʲᵏˣ"][i]])),sub:Object.fromEntries([..."0123456789+-−=()nijkx"].map((c,i)=>[c,[..."₀₁₂₃₄₅₆₇₈₉₊₋₋₌₍₎ₙᵢⱼₖₓ"][i]]))};
@@ -94,12 +95,40 @@ const twpPDFLayout = (() => {
       if (item.hasEOL && !script) {flushScript(line);line = null;}
     }
     flushScript(line);
+    // Contents are rows of cells, not wrapped prose. Keep the title, its section
+    // number and right-hand page reference together before paragraph joining.
+    const contents=[];
+    for(const page of lines.filter(r=>/^\d+$/.test(r.text.trim()))) {
+      const cells=lines.filter(r=>r!==page && Math.abs(r.y-page.y)<Math.max(r.height,page.height)*.4 && r.end<page.x-page.height*2);
+      if(!cells.some(r=>/[a-zA-Z]{3}|[\u3400-\u9fff]{2}/.test(r.text)))continue;
+      contents.push({page,cells:cells.sort((a,b)=>a.x-b.x)});
+    }
+    const isContents=contents.length>=6;
+    const indexRows=lines.filter(r=>/^.+,\s*\d+(?:\s*,\s*\d+)*,?\s*$/.test(r.text.trim()));
+    const isIndex=!isContents && indexRows.length>=12 && indexRows.length>lines.length*.6;
+    const consumed=new Set();
+    if(isContents)for(const {page,cells} of contents) {
+      const row=cells[0],source=cells.map(r=>r.text.trim()).join(' '),prefix=source.match(/^\d+(?:\.\d+)*\s+/)?.[0]||'';
+      row.entry={prefix,suffix:'  '+page.text.trim(),title:source.slice(prefix.length),page:page.text.trim(),labelWidth:prefix?(cells.length>1?cells[1].x-row.x:row.height*2.8):0,pageWidth:Math.max(page.end-page.x,page.height*2.5)};
+      row.text=source+'  '+page.text.trim();row.end=page.end;
+      row.rects.push(...cells.slice(1).flatMap(r=>r.rects),...page.rects);
+      for(const cell of [...cells.slice(1),page])consumed.add(cell);
+    }
+    if(isIndex)for(const row of indexRows) {
+      if(/,\s*$/.test(row.text)) {
+        const continuation=lines.find(r=>/^\d+(?:\s*,\s*\d+)*$/.test(r.text.trim()) && row.y-r.y>0 && row.y-r.y<row.height*1.8 && Math.abs(row.x-r.x)<row.height*3 && !consumed.has(r));
+        if(continuation){row.text+=' '+continuation.text.trim();row.rects.push(...continuation.rects);consumed.add(continuation);}
+      }
+      const suffix=row.text.match(/,\s*\d+(?:\s*,\s*\d+)*\s*$/)[0];
+      row.entry={prefix:'',suffix,title:row.text.slice(0,-suffix.length),page:suffix.slice(1).trim(),labelWidth:0,pageWidth:Math.max(row.height*3,suffix.length*row.height*.48)};
+    }
     const weights = new Map();
     for (const row of lines) { const size=Math.round(row.height); weights.set(size,(weights.get(size)||0)+row.text.length); }
     const bodySize = [...weights].sort((a,b)=>b[1]-a[1])[0]?.[0] || 12;
     const left = Math.min(...lines.map(row=>row.x));
     const blocks = []; let previous;
     for (const row of lines) {
+      if(consumed.has(row))continue;
       row.text = row.text.trim().replace(/̸\s*=/gu,'≠');
       const graphic=graphics.find(r=>row.x-(r.x+r.width)>=-1 && row.x-(r.x+r.width)<row.height*2 && Math.abs(r.y+r.height/2-row.y-row.height*.25)<row.height*.5);
       const list = marker.test(row.text) || !!graphic;
@@ -120,12 +149,12 @@ const twpPDFLayout = (() => {
       const indent = previous ? row.x-previous.x : 0;
       const hanging = last?.kind === "list" && indent >= 0 && indent < row.height*3;
       const firstLineIndent = last?.kind === "paragraph" && last.lineCount === 1 && indent < 0 && -indent < row.height*2.5;
-      const split = !previous || list || heading || last.kind === "heading" || delta <= 0 ||
+      const split = !previous || row.entry || last.kind==='entry' || list || heading || last.kind === "heading" || delta <= 0 ||
         delta > Math.max(previous.height,row.height)*1.8 ||
         Math.abs(previous.height-row.height) > row.height*.15 ||
         (Math.abs(indent) > row.height*.7 && !hanging && !firstLineIndent) ||
         (last.kind === "list" && row.x < last.x-row.height*.5 && !list);
-      if (split) blocks.push({id:blocks.length,text:row.text,kind:list?"list":heading?"heading":"paragraph",marker:list?(row.text.match(marker)?.[0].trim() || "▪"):"",
+      if (split) blocks.push({id:blocks.length,text:row.text,kind:row.entry?'entry':list?"list":heading?"heading":"paragraph",entry:row.entry,marker:list?(row.text.match(marker)?.[0].trim() || "▪"):"",
         fontSize:row.height,bodySize,indent:Math.max(0,Math.min(4,(row.x-left)/bodySize)),
         italic,bold,x:row.x,lineCount:1,rects:[...row.rects],lastRow:row});
       else {
@@ -153,8 +182,9 @@ const twpPDFLayout = (() => {
       if(b.y<.15 && b.x>column.left+.1 && Math.abs(b.x+b.width-column.right)<.025)block.align='right';
       else if(block.kind==='heading' && b.y>=.15 && b.x>column.left+.025 && Math.abs(b.x+b.width/2-(column.left+column.right)/2)<.025)block.align='center';
     }
-    for(const formula of formulas.sort((a,b)=>a.bounds.y-b.bounds.y)) {
-      const block={kind:'formula',text:'[公式：保留原 PDF 图形，TXT 不包含公式图像]',bounds:formula.bounds,rects:[formula.bounds],fontSize:formula.fontSize,bodySize,indent:0};
+    for(const formula of [...formulas,...pictures].sort((a,b)=>a.bounds.y-b.bounds.y)) {
+      const kind=formula.kind||'formula';
+      const block={kind,text:kind==='formula'?'[公式：保留原 PDF 图形，TXT 不包含公式图像]':'[图片：保留原 PDF 图形，TXT 不包含图片]',bounds:formula.bounds,rects:[formula.bounds],fontSize:formula.fontSize,bodySize,indent:0};
       const index=blocks.findIndex(b=>b.bounds && b.bounds.y>formula.bounds.y);
       blocks.splice(index<0?blocks.length:index,0,block);
     }
@@ -167,15 +197,24 @@ const twpPDFLayout = (() => {
     }
     for(const block of blocks) {
       const b=block.bounds;
-      if(!b || b.width>.2 || block.fontSize>=bodySize*.86 || block.kind!=='paragraph')continue;
-      const anchor=blocks.find(candidate=>{
-        const r=candidate.bounds;
-        return candidate.kind==='paragraph' && r?.width>.3 && candidate.fontSize>=bodySize*.85 &&
-          b.y>=r.y-.01 && b.y<r.y+r.height && (b.x>=r.x+r.width-.002 || b.x+b.width<=r.x+.002);
+      if(!b || b.width>.22 || block.fontSize>=bodySize*.86 || !['paragraph','heading'].includes(block.kind))continue;
+      const figure=blocks.find(candidate=>{
+        const r=candidate.bounds;if(candidate.kind!=='figure' || !r)return false;
+        const gap=Math.max(b.x,r.x)-Math.min(b.x+b.width,r.x+r.width);
+        return gap>=-.002 && gap<.07 && b.y>=r.y-.035 && b.y<r.y+r.height;
       });
+      // A marginal note often begins beside the section heading, one line above
+      // its paragraph. Let it follow that paragraph when earlier content grows.
+      const prose=blocks.filter(candidate=>{
+        const r=candidate.bounds;
+        const tolerance=Math.max(block.fontSize,candidate.fontSize)*1.8/(viewport?.height||800);
+        return candidate.kind==='paragraph' && r?.width>.3 && candidate.fontSize>=bodySize*.85 &&
+          b.y>=r.y-tolerance && b.y<r.y+r.height && (b.x>=r.x+r.width-.002 || b.x+b.width<=r.x+.002);
+      }).sort((a,c)=>Math.abs(b.y-a.bounds.y)-Math.abs(b.y-c.bounds.y))[0];
+      const anchor=/^Figure\s+\d/i.test(block.text)?figure||prose:prose||figure;
       if(anchor)block.anchorId=anchor.id;
     }
-    return {text,blocks};
+    return {text,blocks,structure:isContents?'contents':isIndex?'index':'prose'};
   }
   return {extract, vectorMarkers, vectorBackgrounds, stripMarker: text=>text.replace(marker,"")};
 })();

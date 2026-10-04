@@ -14,9 +14,12 @@
     "build:sign": "npx gulp --sign",
     "polyfill": "npx webpack --entry=./polyfill.js --output-path=./src/lib --output-filename=polyfill.js -d inline-source-map",
     "build:ai": "webpack --config webpack.ai.cjs",
-    "test:ai": "node --test tests/ai-service.cjs tests/presets.cjs tests/ai-insights.cjs",
+    "test:ai": "node --test tests/ai-service.cjs tests/presets.cjs tests/ai-insights.cjs tests/ai-transport.cjs",
     "test:ai-insights": "node tests/ai-insights-extension.cjs",
+    "test:ai-scope": "node tests/ai-scope-extension.cjs",
+    "test:web-cache": "node tests/web-cache-extension.cjs",
     "test:ai-extension": "node tests/ai-extension.cjs",
+    "test:ai-resilience": "node tests/ai-resilience-extension.cjs",
     "test:sidebar": "node --test tests/documents.cjs tests/sidepanel-background.cjs tests/pdf-cache.cjs",
     "test:pdf-cache": "node tests/pdf-cache-extension.cjs",
     "test:pdf-auto": "node tests/pdf-auto-extension.cjs",
@@ -27,7 +30,11 @@
     "test:release": "node --test tests/release.cjs",
     "licenses": "node scripts/collect-licenses.cjs",
     "test:pdf-inline": "node --test tests/pdf-inline-math.cjs",
-    "test:pdf-inline-extension": "node tests/pdf-inline-math-extension.cjs"
+    "test:pdf-inline-extension": "node tests/pdf-inline-math-extension.cjs",
+    "test:pdf-structure": "node --test tests/pdf-structure.cjs",
+    "test:pdf-structure-extension": "node tests/pdf-structure-extension.cjs",
+    "test:pdf-cover": "node tests/pdf-cover-extension.cjs",
+    "test:pdf-figure-alignment": "node tests/pdf-figure-alignment-extension.cjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.62",

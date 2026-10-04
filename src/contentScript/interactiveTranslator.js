@@ -209,6 +209,7 @@ const twpInteractiveTranslator = (() => {
     window.addEventListener("scroll", () => { clearTimeout(hoverTimer); clearTimeout(holdTimer); $("trigger").hidden = true; }, true);
     window.addEventListener("resize", closePopup);
     pageTranslator.onPageLanguageStateChange(() => clearParagraphs());
+    document.addEventListener('twp-ai-customization-changed', () => {clearParagraphs(); closePopup(); lastAutomatic = '';});
     twpConfig.onChanged(name => {
       if (name === "hoverTranslationSettings") {
         clearTimeout(hoverTimer); clearTimeout(holdTimer);

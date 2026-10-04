@@ -75,11 +75,25 @@ async function setup(page, html = fixture) {
     window.checkedLastError = () => {};
   });
   for (const file of ["lib/languages.js", "lib/config.js", "lib/platformInfo.js", "lib/i18n.js",
-    "contentScript/showOriginal.js", "contentScript/bilingualTranslator.js", "contentScript/pageTranslator.js"]) {
+    "lib/tooltipStyles.js", "contentScript/showOriginal.js", "contentScript/bilingualTranslator.js", "contentScript/pageTranslator.js"]) {
     await page.addScriptTag({ path: path.resolve("src", file) });
   }
   await page.waitForFunction(() => typeof pageTranslator.translatePage === "function");
 }
+
+test('hover tooltip ships styles with its script and works when resource fetches fail',async({page})=>{
+  await setup(page);
+  const result=await page.evaluate(()=>{
+    let requests=0;window.fetch=()=>{requests++;throw new TypeError('Failed to fetch');};
+    const attach=Element.prototype.attachShadow;let root;
+    Element.prototype.attachShadow=function(options){root=attach.call(this,options);return root;};
+    twpConfig.set('showOriginalTextWhenHovering','yes');showOriginal.enable(true);
+    const box=root.getElementById('originalText');document.body.appendChild(root.host);
+    const style=getComputedStyle(box);
+    return {requests,links:root.querySelectorAll('link').length,position:style.position,fontSize:style.fontSize,padding:style.padding,enabled:showOriginal.isEnabled};
+  });
+  expect(result).toEqual({requests:0,links:0,position:'fixed',fontSize:'14px',padding:'16px',enabled:true});
+});
 
 async function translate(page) {
   await page.evaluate(() => dispatchExtensionMessage({ action: "translatePage", targetLanguage: "zh-CN" }));

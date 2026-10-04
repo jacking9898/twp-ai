@@ -12,7 +12,7 @@
 
 /* Coordinate-based translated text regions with automatic vertical growth. */
 .pdf-pane>h2{min-height:38px;display:flex;align-items:center;justify-content:center}
-#pdf-translations .pdf-original-layout{padding:0;overflow:visible}
+#pdf-translations .pdf-translation-page.pdf-original-layout{padding:0;overflow:visible}
 .pdf-layout-surface{position:relative;overflow:hidden;background:white}
 #pdf-translations .pdf-layout-surface .pdf-positioned-chunk{position:absolute;padding:0;margin:0;border-radius:0;overflow:visible;white-space:normal;min-width:0}
 .pdf-positioned-text{margin:0;padding:0;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -43,3 +43,14 @@ button.pdf-toggle[aria-pressed=true]{background:var(--tint);border-color:var(--a
 .pdf-inline-limits>sup{grid-row:1}.pdf-inline-limits>sub{grid-row:2}
 .pdf-toggle[aria-pressed=true] .pdf-toggle-state{color:inherit}
 #pdf-style-dialog>.pdf-toggle{margin:4px 6px 4px 0}
+.pdf-positioned-chunk[data-kind=figure] .pdf-formula-image,.pdf-positioned-chunk[data-kind=artwork] .pdf-formula-image{height:100%}
+.pdf-positioned-chunk[data-kind=artwork]{z-index:0;pointer-events:none}
+.pdf-layout-cover .pdf-positioned-chunk:not([data-kind=artwork]){z-index:1}
+.pdf-layout-cover .pdf-positioned-text{color:white;text-shadow:0 1px 3px #0008}
+.pdf-layout-cover .pdf-positioned-text.original{margin-bottom:0}
+#pdf-ai-dialog>label{display:grid;grid-template-columns:80px minmax(0,1fr);align-items:center}
+#pdf-ai-dialog>label select{width:100%;min-width:0}
+#pdf-translations .pdf-layout-surface .pdf-entry-row{display:flex;align-items:flex-start;gap:.35em}
+.pdf-entry-title{flex:1;min-width:0}
+.pdf-entry-label{flex:none;white-space:nowrap}
+.pdf-entry-page{flex:none;text-align:right;white-space:nowrap}

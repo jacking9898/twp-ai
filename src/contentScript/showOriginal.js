@@ -18,11 +18,7 @@ twpConfig.onReady(function () {
     enabledObservers.push(callback);
   };
 
-  let styleTextContent = "";
-  fetch(chrome.runtime.getURL("/contentScript/css/showOriginal.css"))
-    .then((response) => response.text())
-    .then((response) => (styleTextContent = response))
-    .catch((e) => console.error(e));
+  const styleTextContent = twpTooltipStyles.showOriginal;
 
   let showOriginalTextWhenHovering = twpConfig.get(
     "showOriginalTextWhenHovering"
@@ -160,9 +156,6 @@ twpConfig.onReady(function () {
       mode: "closed",
     });
     shadowRoot.innerHTML = `
-            <link rel="stylesheet" href="${chrome.runtime.getURL(
-              "/contentScript/css/showOriginal.css"
-            )}">
             <div id="originalText" dir="auto"></div>
         `;
 

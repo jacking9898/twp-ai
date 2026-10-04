@@ -8,6 +8,7 @@ const babel = require("gulp-babel");
 const sourcemaps = require("gulp-sourcemaps");
 const webpack = require("webpack");
 const {collectLicenses} = require("./scripts/collect-licenses.cjs");
+const {embedTooltipStyles} = require("./scripts/embed-tooltip-styles.cjs");
 const root = __dirname;
 const build = path.join(root, "build");
 const version = JSON.parse(fs.readFileSync(path.join(root, "src/manifest.json"), "utf8")).version;
@@ -30,7 +31,7 @@ gulp.task("ai-bundle", () => new Promise((resolve, reject) => {
     else resolve();
   }));
 }));
-gulp.task("licenses", cb => { collectLicenses(); cb(); });
+gulp.task("licenses", cb => { collectLicenses(); embedTooltipStyles(); cb(); });
 gulp.task("firefox-copy", () => gulp.src(["src/**/*", "!src/icons/icon-*.png", "!src/icons/bilingual.png"], {cwd: root, encoding: false}).pipe(gulp.dest(path.join(build, firefox))));
 gulp.task("pdf-copy", cb => {
   const dependency = path.join(root, "node_modules/pdfjs-dist");

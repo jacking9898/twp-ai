@@ -144,6 +144,10 @@ const twpPDFReader = (() => {
             if (record.base.width !== base.width || record.base.height !== base.height) {
               preservePosition(() => { record.base = base; sizeRecord(record); });
             }
+            // PDF.js replaces raw path arrays with Path2D while rendering. Parse
+            // graphics first so detection is identical for manual/auto translation.
+            await getLayout(record.number);
+            if(token!==version || pdf!==activePDF || !nearby.has(record))continue;
             const viewport = page.getViewport({scale: record.scale});
             const ratio = Math.min(devicePixelRatio || 1, 2, Math.sqrt(6000000 / (viewport.width * viewport.height)));
             const canvas = document.createElement("canvas");
@@ -198,7 +202,8 @@ const twpPDFReader = (() => {
         if(pdf===activePDF && (record.base.width!==viewport.width || record.base.height!==viewport.height)) {
           preservePosition(()=>{record.base=viewport;sizeRecord(record);});
         }
-        const layout = twpPDFLayout.extract(content.items,styles,viewport,twpPDFLayout.vectorMarkers(operators,library.OPS));
+        const pictures=twpPDFGraphics.detect(operators,library.OPS,viewport,content.items,styles);
+        const layout = twpPDFLayout.extract(content.items,styles,viewport,twpPDFLayout.vectorMarkers(operators,library.OPS),pictures);
         layout.backgrounds=twpPDFLayout.vectorBackgrounds(operators,library.OPS,viewport);
         record.textContent=content;
         record.layout = layout;

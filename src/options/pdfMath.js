@@ -17,7 +17,8 @@ const twpPDFMath = (() => {
       const font=styles[item.fontName]?.fontFamily||"";
       const mathFont=/CM(?:MI|SY|EX)|MS[AB]M|dsrom|math|symbol/i.test(font);
       row.math ||= mathFont || /[\u2200-\u22ff\u239b-\u23ad\uf8ee-\uf8fe]/.test(item.str);
-      row.prose ||= !mathFont && /[a-zA-Z]{3}|[\u3400-\u9fff]{2}/.test(item.str);
+      const prose=item.str.replace(/\b(?:exp|log|ln|sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|det|diag|rank|tr|arg|max|min|lim|sup|inf|ker)\b/g,'');
+      row.prose ||= !mathFont && /[a-zA-Z]{3}|[\u3400-\u9fff]{2}/.test(prose);
     }
     // A raised TeX sum can occupy its own geometric row above inline prose.
     // It is not a display equation when body text brackets it on the next row.
@@ -41,7 +42,14 @@ const twpPDFMath = (() => {
       if(!group || group.at(-1).low-row.y>size*1.9) {group=[];groups.push(group);}
       group.push(row);
     }
-    return groups.filter(g=>g.some(r=>r.math)).map(g=>{
+    return groups.filter(g=>g.some(r=>r.math)).filter(g=>{
+      const first=g[0],last=g.at(-1),before=rows[rows.indexOf(first)-1],after=rows[rows.indexOf(last)+1],members=g.flatMap(r=>r.items);
+      const left=Math.min(...members.map(i=>i.transform[4])),right=Math.max(...members.map(i=>i.transform[4]+i.width));
+      // Short math-only lines inside a narrow marginal caption are inline
+      // continuations. Keep them with the caption rather than making tiny crops.
+      const adjacent=row=>row?.prose && Math.max(...row.items.map(i=>i.transform[4]+i.width))-Math.min(...row.items.map(i=>i.transform[4]))<viewport.width*.23 && row.items.some(i=>Math.abs(i.transform[4]-left)<size*2);
+      return !(right-left<viewport.width*.23 && before && after && before.low-first.y<size*2 && last.low-after.y<size*2 && adjacent(before) && adjacent(after));
+    }).map(g=>{
       const members=g.flatMap(r=>r.items),first=g[0],last=g.at(-1);
       let x=Math.min(...members.map(i=>i.transform[4]))-2;
       let right=Math.max(...members.map(i=>i.transform[4]+i.width))+2;
@@ -80,19 +88,33 @@ const twpPDFMath = (() => {
           const scale=Math.min(3,Math.max(1.5,state.node.clientWidth/(b.width*base.width)*(devicePixelRatio||1)),Math.sqrt(2000000/(b.width*base.width*b.height*base.height)));
           const viewport=page.getViewport({scale});
           state.canvas.width=Math.ceil(b.width*viewport.width);state.canvas.height=Math.ceil(b.height*viewport.height);
-          state.task=page.render({canvasContext:state.canvas.getContext('2d'),viewport,transform:[1,0,0,1,-b.x*viewport.width,-b.y*viewport.height],background:'white'});
-          await state.task.promise;
+          let operationsFilter=null,renderTask;
+          if(state.kind==='artwork') {
+            const ops=(await twpLoadPDF()).OPS,textOps=new Set([ops.showText,ops.showSpacedText,ops.nextLineShowText,ops.nextLineSetSpacingShowText]);
+            // PDF.js optimizes the display list differently from getOperatorList.
+            // Filter the actual task's list (PDF.js is pinned), never raw indices:
+            // skipping a transform/restore can reveal the clipped back cover.
+            operationsFilter=index=>{
+              const list=renderTask?._internalRenderTask?.operatorList;
+              if(!list || list.fnArray[index]===undefined)throw new Error('无法读取封面绘制指令');
+              return !textOps.has(list.fnArray[index]);
+            };
+          }
+          state.task=renderTask=page.render({canvasContext:state.canvas.getContext('2d'),viewport,transform:[1,0,0,1,-b.x*viewport.width,-b.y*viewport.height],background:'white',operationsFilter});
+          await renderTask.promise;
           if(nodes.has(state.node)&&state.visible&&getPDF()===pdf){state.ready=true;state.node.dataset.state='ready';state.label.hidden=true;}
-        }catch(error){if(error.name!=='RenderingCancelledException'&&nodes.has(state.node)){state.failed=true;state.label.textContent='公式显示失败，点击重试';state.label.hidden=false;}}
+        }catch(error){if(error.name!=='RenderingCancelledException'&&nodes.has(state.node)){state.failed=true;state.label.textContent='图形显示失败，点击重试';state.label.hidden=false;}}
         finally{state.task=null;}
       }}finally{running=false;}
     }
     function node(record,block){
       const node=document.createElement('div');node.className='pdf-formula-image';node.dataset.state='waiting';
+      node.dataset.kind=block.kind;
       node.style.aspectRatio=String(block.bounds.width*record.base.width/(block.bounds.height*record.base.height));
-      const canvas=document.createElement('canvas');canvas.width=canvas.height=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',`第 ${record.number} 页原始公式（保留图形）`);
+      const canvas=document.createElement('canvas');canvas.width=canvas.height=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',`第 ${record.number} 页原始${block.kind==='formula'?'公式':'图片'}（保留图形）`);
       const label=document.createElement('button');label.className='pdf-formula-status';label.textContent='正在加载原始公式…';
-      node.append(canvas,label);const state={node,canvas,label,number:record.number,bounds:block.bounds,ready:false,visible:false};
+      label.textContent='正在加载原始图形…';
+      node.append(canvas,label);const state={node,canvas,label,number:record.number,kind:block.kind,bounds:block.bounds,ready:false,visible:false};
       label.onclick=()=>{state.failed=false;void pump();};nodes.set(node,state);observer.observe(node);return node;
     }
     function clear(container){for(const [node,state] of nodes)if(!container||container.contains(node)){observer.unobserve(node);state.task?.cancel();state.canvas.width=state.canvas.height=0;nodes.delete(node);}}

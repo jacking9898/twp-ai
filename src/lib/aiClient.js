@@ -18,6 +18,7 @@ const twpAIClient = (() => {
       return (await call({ action: "aiTranslate", id, targetLanguage, context,
         sourceLanguage: options.sourceLanguage || "auto",
         forceRefresh: !!options.forceRefresh, documentKey: options.documentKey,
+        cacheBySegment: !!options.cacheBySegment,
         profileId: options.profileId, expertId: options.expertId, styleId: options.styleId, glossaryId: options.glossaryId,
         segments: texts.map((text, i) => ({ id: String(i), text })) })).translations;
     } finally { pending.delete(id); }

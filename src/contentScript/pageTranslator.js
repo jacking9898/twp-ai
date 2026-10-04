@@ -1203,7 +1203,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
           // the word order of the translation.
           const paragraphs = source.map(nodes => nodes.join(""));
           if (currentPageTranslatorService === "openai") {
-            return (await twpAIClient.translate(paragraphs, currentTargetLanguage, document.title, "page", options)).map(text => [text]);
+            return (await twpAIClient.translate(paragraphs, currentTargetLanguage, document.title, "page", {...options, cacheBySegment:true})).map(text => [text]);
           }
           const results = await backgroundTranslateHTML(
             currentPageTranslatorService, currentSourceLanguage, currentTargetLanguage,

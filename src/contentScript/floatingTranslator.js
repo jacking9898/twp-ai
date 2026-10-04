@@ -24,7 +24,7 @@ void (async () => {
       <section id="panel" hidden aria-label="控制面板"><div class="heading"><button id="back" hidden aria-label="返回控制面板">←</button><strong id="panel-title">控制面板</strong><button id="close" aria-label="关闭面板">关闭</button></div><div id="main-content">
         <div class="pair"><div><label for="target">目标语言</label><select id="target"></select></div><div><label for="mode">显示方式</label><select id="mode"><option value="bilingual">双语对照</option><option value="translated">仅译文</option></select></div></div>
         <label for="engine">翻译服务</label><select id="engine"><option value="bing">微软翻译</option><option value="google">谷歌翻译</option><option value="yandex">Yandex</option><option value="openai">AI · 自定义模型</option></select>
-        <div id="ai-options" hidden><label for="profile">模型服务</label><select id="profile"></select><label for="domain">专业领域</label><select id="domain"><option value="general">通用</option><option value="ml">机器学习 / 数据科学</option><option value="software">软件开发</option></select></div>
+        <div id="ai-options" hidden><label for="profile">模型服务</label><select id="profile"></select><label for="domain">此网页的 AI 专家</label><select id="domain"></select><label for="page-glossary">此网页的术语库</label><select id="page-glossary"></select><label for="page-style">此网页的翻译风格</label><select id="page-style"></select><p id="page-ai-notice" class="note" role="status"></p><button id="page-ai-reset" class="action" style="width:100%;margin-top:8px">恢复跟随全局</button></div>
         <div id="cache-options" hidden><label for="cache-duration">AI 缓存时间</label><select id="cache-duration"><option value="0">关闭缓存</option><option value="1">1 小时</option><option value="24">1 天</option><option value="168">7 天</option><option value="720">30 天</option></select></div>
         <button id="translate" class="action primary">翻译网页</button><button id="retranslate" class="action" hidden style="width:100%;margin-top:8px">重新翻译（跳过缓存）</button><p id="status" role="status" aria-live="polite"></p>
         <div class="quick-grid">
@@ -51,6 +51,9 @@ void (async () => {
       </section>
     </div>`;
   const $ = id => shadow.getElementById(id);
+  const scopeControls = twpAIScopeControls.create({root:shadow,fields:{expertId:'domain',glossaryId:'page-glossary',styleId:'page-style'},notice:'page-ai-notice',reset:'page-ai-reset',scopeLabel:'此网页',
+    onBusy:value => {$("translate").disabled = $("retranslate").disabled = value;},
+    onSaved:() => {if (pageTranslator.getService() === 'openai') {pageTranslator.restorePage(); document.dispatchEvent(new Event('twp-ai-customization-changed'));}}});
   let hoverTimer, closeTimer;
   let drag = null, dragged = false;
   document.documentElement.appendChild(host);
@@ -100,8 +103,7 @@ void (async () => {
     const profiles = twpConfig.get("aiProfiles");
     $("profile").replaceChildren(...(profiles.length ? profiles.map(p => new Option(`${p.name} · ${p.model}`, p.id)) : [new Option("请先添加 AI 服务", "")]));
     $("profile").value = twpConfig.get("aiActiveProfile");
-    $("domain").replaceChildren(...twpAIPresets.allExperts(twpConfig.get("aiCustomExperts")).map(item => new Option(item.name, item.id)));
-    $("domain").value = twpConfig.get("aiTranslationSettings").domain;
+    scopeControls.refresh();
     $("selection-toggle").checked = twpConfig.get("showTranslateSelectedButton") === "yes";
     const hover = twpConfig.get("hoverTranslationSettings");
     const selection = twpConfig.get("selectionTranslationSettings");
@@ -124,7 +126,7 @@ void (async () => {
     $("panel-title").textContent = { main: "控制面板", hover: "悬停翻译设置", selection: "划词翻译" }[view];
     $("back").hidden = view === "main"; position();
   }
-  function openPanel() { $("panel").hidden = false; $("tools").hidden = false; $("settings").setAttribute("aria-expanded", "true"); panelView("main"); controls(); state(); position(); }
+  function openPanel() { $("panel").hidden = false; $("tools").hidden = false; $("settings").setAttribute("aria-expanded", "true"); panelView("main"); controls(); state(); position(); void scopeControls.load(); }
   function closePanel() { $("panel").hidden = true; $("settings").setAttribute("aria-expanded", "false"); }
   function toggle() {
     if (dragged) { dragged = false; return; }
@@ -182,7 +184,6 @@ void (async () => {
     twpConfig.set("targetLanguage", language);
   };
   $("profile").onchange = () => twpConfig.set("aiActiveProfile", $("profile").value);
-  $("domain").onchange = () => twpConfig.set("aiTranslationSettings", { ...twpConfig.get("aiTranslationSettings"), domain: $("domain").value });
   $("selection-toggle").onchange = () => twpConfig.set("showTranslateSelectedButton", $("selection-toggle").checked ? "yes" : "no");
   $("hide-site").onclick = () => twpConfig.set("floatingHiddenSites", [...new Set([...twpConfig.get("floatingHiddenSites"), location.hostname])]);
   host.addEventListener("pointerenter", () => { clearTimeout(closeTimer); hoverTimer = setTimeout(() => $("tools").hidden = false, 200); });

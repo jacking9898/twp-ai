@@ -15,11 +15,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   const tabHostName = _[1];
   if (platformInfo.isMobile.any) return;
 
-  let styleTextContent = "";
-  fetch(chrome.runtime.getURL("/contentScript/css/showTranslated.css"))
-    .then((response) => response.text())
-    .then((response) => (styleTextContent = response))
-    .catch((e) => console.error(e));
+  const styleTextContent = twpTooltipStyles.showTranslated;
 
   let pageLanguageState = "original";
   let originalTabLanguage = "und";
@@ -409,10 +405,6 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
       mode: "closed",
     });
     shadowRoot.innerHTML = `
-        <link rel="stylesheet" href="${chrome.runtime.getURL(
-          "/contentScript/css/showTranslated.css"
-        )}">
-
         <div id="eDivResult">
                 <div id="eTextTranslated" dir="auto"></div>
                 <hr>

@@ -3,7 +3,7 @@
 void (async () => {
   await twpConfig.onReady();
   const $ = id => document.getElementById(id);
-  let busy = false, reader, fileVersion = 0;
+  let busy = false, scopeSaving = false, reader, fileVersion = 0;
   const aborts = new Set();
   const preferences = twpConfig.get("sidebarPreferences") || {};
   twpPDFToggle.set($("pdf-auto-translate"),twpConfig.get("pdfAutoTranslate") !== false);
@@ -17,6 +17,10 @@ void (async () => {
   function status(message = "", error = false) {
     $("task-status").textContent = message; $("task-status").dataset.error = String(error);
   }
+  const scopeControls = twpAIScopeControls.create({root:document,fields:{expertId:'pdf-expert',glossaryId:'pdf-glossary',styleId:'pdf-ai-style'},notice:'pdf-ai-notice',reset:'pdf-ai-reset',scopeLabel:'此 PDF',
+    onBusy:value => {if (value && busy) cancel('正在更新此 PDF 的 AI 设置'); scopeSaving = value; controls(); if (!value) reader.scheduleAuto();},
+    onSaved:() => {reader.reset(); status('此 PDF 的 AI 设置已保存，已有译文需要重新翻译。');}});
+  void scopeControls.load(null);
   function models() {
     const selected = $("profile").value || preferences.profileId || twpConfig.get("aiActiveProfile");
     const profiles = twpConfig.get("aiProfiles");
@@ -24,12 +28,14 @@ void (async () => {
     $("profile").value = selected;
     if (!$("profile").value) $("profile").selectedIndex = 0;
     $("model-row").hidden = $("retranslate-document").hidden = $("engine").value !== "openai";
+    $("pdf-ai-settings").hidden = $("engine").value !== "openai";
   }
   function controls() {
     const loaded = reader?.hasPDF();
-    $("translate-document").disabled = $("retranslate-document").disabled = busy || !loaded;
-    for (const id of ["engine", "source-language", "target", "profile", "document-file"]) $(id).disabled = busy;
-    $("cancel").hidden = !busy; reader?.updateControls(busy);
+    $("translate-document").disabled = $("retranslate-document").disabled = busy || scopeSaving || !loaded;
+    $("pdf-ai-settings").disabled = busy || scopeSaving || !loaded;
+    for (const id of ["engine", "source-language", "target", "profile", "document-file"]) $(id).disabled = busy || scopeSaving;
+    $("cancel").hidden = !busy; reader?.updateControls(busy || scopeSaving);
     $("pdf-empty").hidden = !!loaded || busy;
   }
   function applyPreferences(value = {}) {
@@ -90,11 +96,14 @@ void (async () => {
     $("document-name").textContent = file.name;
     try {
       await reader.close();
+      $("pdf-ai-dialog").close(); await scopeControls.load(null);
       if (token !== fileVersion) return;
       if (!/\.pdf$/i.test(file.name)) throw new Error("请选择 PDF 文件");
       if (file.size > 50 * 1024 * 1024) throw new Error("PDF 文件过大，请选择不超过 50 MB 的文件");
       const result = await reader.open(file);
       if (token !== fileVersion || !result) return;
+      await scopeControls.load(reader.documentKey());
+      if (token !== fileVersion) return;
       $("document-name").textContent = `${file.name} · ${result.pages} 页`;
       document.title = `${file.name} · 页渡 · Yedu`;
       status(twpPDFToggle.get($("pdf-auto-translate")) ? "滚动自动翻译已开启 · 停留到哪页就翻译哪页" : "点击“翻译当前页”或右侧“翻译本页”开始翻译");
@@ -117,6 +126,9 @@ void (async () => {
   $("pdf-auto-translate").onchange = () => { twpConfig.set("pdfAutoTranslate", twpPDFToggle.get($("pdf-auto-translate"))); autoChanged(); };
   $("bilingual-document").onchange = () => {twpConfig.set('pdfShowOriginal',twpPDFToggle.get($("bilingual-document")));reader.renderTranslation();};
   $("ai-insights").onclick = () => reader.insights().catch(error=>status(error.message,true));
+  $("pdf-ai-settings").onclick = () => {scopeControls.refresh(); $("pdf-ai-dialog").showModal(); void scopeControls.load(reader.documentKey());};
+  $("pdf-ai-close").onclick = () => $("pdf-ai-dialog").close();
+  $("pdf-ai-dialog").addEventListener('close', () => reader.scheduleAuto());
   $("settings").onclick = () => twpAIClient.call({action:"aiOpenSettings"}).catch(error => status(error.message,true));
   for (const id of ["engine", "source-language", "target", "profile"]) $(id).onchange = () => {
     twpConfig.set("sidebarPreferences", {...twpConfig.get("sidebarPreferences"), service:$("engine").value, sourceLanguage:$("source-language").value, targetLanguage:$("target").value, profileId:$("profile").value});
@@ -130,7 +142,7 @@ void (async () => {
     }
     if (!["aiActiveProfile", "aiProfiles", "aiTranslationSettings", "aiCustomExperts", "aiCustomGlossaries"].includes(name)) return;
     if (busy) cancel("模型或术语已变化，请重新翻译。");
-    reader.reset(); models(); controls();
+    reader.reset(); models(); scopeControls.refresh(); controls();
   });
   document.addEventListener("keydown", event => { if (event.key === "Escape" && busy && !document.querySelector('dialog[open]')) cancel("已取消翻译，滚动自动翻译已关闭；已完成的页面仍可阅读", true); });
   window.addEventListener("pagehide", () => { cancel(); void reader.close(); });

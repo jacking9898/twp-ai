@@ -5,6 +5,33 @@ globalThis.indexedDB = { open: () => ({}) };
 globalThis.chrome = { runtime: { onMessage: { addListener() {} } }, tabs: { onRemoved: { addListener() {} }, onUpdated: { addListener() {} } } };
 globalThis.twpConfig = { onReady: () => new Promise(() => {}), onChanged() {} };
 const service = import("../extension/ai-service.js");
+test('web paragraph cache ignores batch IDs and neighbors but isolates all effective translation inputs', async () => {
+  const {paragraphCacheIdentity} = await service;
+  const profile = {id:'deepseek-flash', updated:1};
+  const input = {sourceKey:'web:article',sourceLanguage:'en',targetLanguage:'zh-CN',context:'Article'};
+  const key = paragraphCacheIdentity(profile,input,'expert/style/matched glossary','Read $x^2$ at https://example.test');
+  assert.equal(paragraphCacheIdentity(profile,{...input,segments:[{id:'27',text:'different neighbor'}]},'expert/style/matched glossary','Read $x^2$ at https://example.test'),key);
+  for (const change of [{sourceKey:'web:other'},{sourceLanguage:'auto'},{targetLanguage:'zh-TW'},{context:'Other article'}]) {
+    assert.notEqual(paragraphCacheIdentity(profile,{...input,...change},'expert/style/matched glossary','Read $x^2$ at https://example.test'),key);
+  }
+  assert.notEqual(paragraphCacheIdentity({...profile,id:'deepseek-pro'},input,'expert/style/matched glossary','Read $x^2$ at https://example.test'),key);
+  assert.notEqual(paragraphCacheIdentity({...profile,updated:2},input,'expert/style/matched glossary','Read $x^2$ at https://example.test'),key);
+  assert.notEqual(paragraphCacheIdentity(profile,input,'changed glossary','Read $x^2$ at https://example.test'),key);
+  assert.notEqual(paragraphCacheIdentity(profile,input,'expert/style/matched glossary','Changed text'),key);
+});
+test('document selections override global defaults without mutating them; removed selections inherit and explicit options win', async () => {
+  const {scopedCustomization,resolveCustomization} = await service;
+  const globals = {domain:'general',styleId:'faithful',glossaryId:'public-default'};
+  const saved = {expertId:'ml',styleId:'academic',glossaryId:'public-tech'};
+  const options = scopedCustomization({segments:[{text:'Machine Learning'}]},saved);
+  const resolved = resolveCustomization(options,globals);
+  assert.match(resolved.expertPrompt,/machine learning/);
+  assert.ok(resolved.library.some(([a]) => a === 'Machine Learning'));
+  assert.equal(globals.domain,'general');
+  assert.equal(scopedCustomization({expertId:'software'},saved).expertId,'software');
+  assert.deepEqual(scopedCustomization({}, {expertId:'custom-deleted',styleId:'invalid',glossaryId:'deleted'}),{});
+  assert.throws(() => resolveCustomization(scopedCustomization({expertId:'invalid'},saved),globals),/已删除/);
+});
 
 test("public presets resolve target-language terms and preserve source prompt variables safely", async () => {
   const { resolveCustomization, makeInstructions } = await service;
@@ -103,4 +130,13 @@ test("a stored credential cannot be silently reused on a different endpoint", as
   assert.equal(normalizeProfile({ ...previous, apiKey: "" }, previous).apiKey, "secret");
   assert.throws(() => normalizeProfile({ ...previous, baseURL: "https://two.example/v1", apiKey: "" }, previous), /重新填写密钥/);
   assert.equal(normalizeProfile({ ...previous, baseURL: "https://two.example/v1", apiKey: "", clearKey: true }, previous).apiKey, "");
+});
+
+test('term extraction keeps valid literal candidates when a model duplicates terms or returns object entries',async()=>{
+  const {parseExtractedTerms}=await service;
+  const response='```json\n'+JSON.stringify({terms:[['attention','注意力'],['Attention','重复'],{source:'random forest',translation:'随机森林'},['invented','假词'],['bad',null]]})+'\n```';
+  assert.deepEqual(parseExtractedTerms(response,'attention and a random forest'),[['attention','注意力'],['random forest','随机森林']]);
+  assert.deepEqual(parseExtractedTerms('{"terms":[]}','nothing technical'),[]);
+  assert.throws(()=>parseExtractedTerms('invalid','attention'),/术语格式/);
+  assert.throws(()=>parseExtractedTerms('{"terms":"attention"}','attention'),/术语格式/);
 });
