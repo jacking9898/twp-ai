@@ -70,6 +70,10 @@ test("both installation ZIPs include licenses, source notice and every registere
     assert.ok(files.has("lib/builtinPresets.js"));
     assert.ok(files.has("options/pdfTypeset.js"));
     assert.ok(files.has("options/pdfMath.js"));
+    for (const asset of ["options/cache.html", "options/cache.js", "options/cache.css", "background/imageCapture.js", "contentScript/regionTranslator.js", "lib/imageOCR.js", "lib/imageOCRLayout.js", "options/imageTranslation.js", "lib/ocr/worker.bundle.js", "lib/ocr/opencv.js", "lib/ocr/ort/ort-wasm-simd-threaded.mjs", "lib/ocr/ort/ort-wasm-simd-threaded.wasm"]) assert.ok(files.has(asset), `Missing OCR or cache asset: ${asset}`);
+    assert.equal(files.get("lib/ocr/ort/ort-wasm-simd-threaded.wasm").subarray(0, 4).toString('hex'), '0061736d');
+    assert.doesNotMatch(files.get("lib/ocr/opencv.js").toString(), /\bnew\s+Function\s*\(|\bnew_\s*\(\s*Function\b|\beval\s*\(/);
+    assert.ok(![...files.keys()].some(file => /_onnx_infer\.tar$/.test(file)), 'Model weights must remain optional downloads');
     for (const asset of ["options/insights.html", "options/insights.js"]) assert.ok(files.has(asset), `Missing AI insights asset: ${asset}`);
     for (const asset of ["lib/pdfLoader.mjs", "lib/pdfjs/pdf.mjs", "lib/pdfjs/pdf.worker.mjs", "lib/pdfjs/LICENSE", "lib/pdfjs/standard_fonts/LICENSE_FOXIT", "lib/pdfjs/standard_fonts/LICENSE_LIBERATION", "lib/pdfjs/wasm/LICENSE_OPENJPEG", "lib/pdfjs/cmaps/LICENSE", "options/pdfDocument.js", "options/pdf.html", "options/pdf.js", "options/pdf.css", "options/pdfReader.js", "options/pdfLayout.js", "options/pdfTools.js", "options/pdfHandoff.js"]) assert.ok(files.has(asset), `Missing PDF asset: ${asset}`);
     for (const file of ["options/options.html", "options/release-notes/en.html", "popup/popup.html", "popup/old-popup.html"]) assert.doesNotMatch(files.get(file).toString(), /patreon\.com|paypal\.com|600,000|#donation/);
@@ -79,6 +83,8 @@ test("both installation ZIPs include licenses, source notice and every registere
 test("the source ZIP reproduces the editable inputs and excludes private research snapshots", () => {
   const files = unzip(`Yedu_${version}_Source.zip`);
   for (const file of ["README.en.md", "extension/translation-cache.js", "src/options/pdfDocument.js"]) assert.equal(files.get(file)?.toString(), read(file));
+  for (const file of ["extension/ocr-worker.js", "extension/ocr-unused-worker.js", "webpack.ocr.cjs", "scripts/opencv-csp-loader.cjs", "src/lib/imageOCR.js", "src/lib/imageOCRLayout.js", "src/options/imageTranslation.js"]) assert.equal(files.get(file)?.toString(), read(file), `Missing editable OCR source: ${file}`);
+  assert.ok(![...files.keys()].some(file => file.startsWith('src/lib/ocr/') && !file.endsWith('/')), 'Generated OCR runtime must be rebuilt from locked dependencies');
   for (const file of ["src/lib/builtinPresets.js", "extension/ai-service.js", "gulpfile.js", "scripts/collect-licenses.cjs", "src/options/options.js", "package-lock.json", "build-instructions.md", "readme.md", "tests/release.cjs"]) assert.equal(files.get(file)?.toString(), read(file), `Source mismatch: ${file}`);
   for (const file of files.keys()) assert.ok(!/\.local-data|node_modules|(^|\/)build\/|importedPresets|aiService\.bundle|\.(pem|key|p12|pfx)$|(^|\/)\.env/.test(file), `Unexpected source file: ${file}`);
   const presets = require("../src/lib/builtinPresets.js");

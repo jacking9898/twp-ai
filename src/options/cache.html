@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>翻译缓存 · 页渡</title><link rel="stylesheet" href="ai.css"><link rel="stylesheet" href="/lib/brandTheme.css"><link rel="stylesheet" href="cache.css"></head>
+<body><main>
+  <header><p class="eyebrow">页渡 · Yedu</p><h1>翻译缓存</h1><p>查看本机保存的翻译结果，选择需要删除的内容。</p><a href="ai.html">模型与术语设置 ↗</a></header>
+  <section class="card">
+    <div class="filters"><label>缓存类型<select id="kind"><option value="ai">自定义 AI</option><option value="free">免费翻译</option></select></label><label id="database-label" hidden>服务与语言<select id="database"></select></label><label class="search">搜索缓存<input id="query" type="search" maxlength="200" placeholder="来源标题、模型或译文…"></label><button id="refresh" type="button">刷新</button></div>
+    <p id="hint" class="hint">AI 缓存保存译文及来源标题，不保存原文或密钥。旧记录可能没有来源信息。这里只显示仍有效的本机缓存，已显示在网页上的译文不会随删除立即消失。</p>
+    <div class="actions"><label class="selection"><input id="select-all" type="checkbox">全选本页</label><span id="selected">未选择</span><button id="delete" class="danger" type="button" disabled>删除所选缓存</button></div>
+    <p id="status" role="status" aria-live="polite"></p><div id="entries"></div>
+    <nav class="pagination" aria-label="缓存分页"><button id="previous" type="button">上一页</button><span id="page-count"></span><button id="next" type="button">下一页</button></nav>
+  </section>
+  <dialog id="detail"><div class="section-title"><h2>缓存内容</h2><button id="close" type="button">关闭</button></div><pre id="detail-text"></pre></dialog>
+</main><script src="/lib/polyfill.js"></script><script src="/lib/checkedLastError.js"></script><script src="/lib/languages.js"></script><script src="/lib/config.js"></script><script src="/lib/aiClient.js"></script><script src="cache.js"></script></body></html>

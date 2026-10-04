@@ -2,6 +2,8 @@
 
 const translationCache = (function () {
   const translationCache = {};
+  let generation = 0;
+  translationCache.generation = () => generation;
 
   /**
    * @typedef {Object} CacheEntry
@@ -210,12 +212,14 @@ const translationCache = (function () {
      * @returns {Promise<CacheEntry>}
      */
     async query(originalText) {
+      const ticket = generation;
       const hash = await Utils.stringToSHA1String(originalText);
 
       let translation = this.cache.get(hash);
       if (translation) return translation;
 
       translation = await this.#queryInDB(hash);
+      if (ticket !== generation) return;
       if (translation) this.cache.set(hash, translation);
 
       return translation;
@@ -254,13 +258,15 @@ const translationCache = (function () {
      * @param {string} detectedLanguage
      * @returns {Promise<boolean>}
      */
-    async add(originalText, translatedText, detectedLanguage = "und") {
+    async add(originalText, translatedText, detectedLanguage = "und", ticket = generation) {
       const hash = await Utils.stringToSHA1String(originalText);
+      if (ticket !== generation) return false;
       return await this.#addInDb({
         originalText,
         translatedText,
         detectedLanguage,
         key: hash,
+        createdAt: Date.now(),
       });
     }
 
@@ -392,7 +398,7 @@ const translationCache = (function () {
       /** @type {Map<string, Cache>} */
       this.list = new Map();
       try {
-        this.#openCacheList();
+        this.ready = new Promise(resolve => this.#openCacheList(resolve));
       } catch (e) {
         console.error(e);
       }
@@ -401,7 +407,7 @@ const translationCache = (function () {
     /**
      * Starts the connection to the database cacheList.
      */
-    #openCacheList() {
+    #openCacheList(ready) {
       const request = indexedDB.open("cacheList", 1);
 
       request.onsuccess = (event) => {
@@ -412,11 +418,13 @@ const translationCache = (function () {
         this.list.forEach((cache, key) => {
           this.#addCacheList(key);
         });
+        ready();
       };
 
       request.onerror = request.onblocked = (event) => {
         console.error("Error opening the database", event);
         this.dbCacheList = null;
+        ready();
       };
 
       request.onupgradeneeded = (event) => {
@@ -544,6 +552,7 @@ const translationCache = (function () {
         };
       });
     }
+    async names() {await this.ready;return [...new Set([...await this.#getAllDBNames(), ...this.list.keys()])];}
 
     /**
      * Delete all translation caches.
@@ -662,7 +671,8 @@ const translationCache = (function () {
     targetLanguage,
     originalText,
     translatedText,
-    detectedLanguage
+    detectedLanguage,
+    ticket = generation
   ) => {
     try {
       const cache = await cacheList.getCache(
@@ -670,7 +680,7 @@ const translationCache = (function () {
         sourceLanguage,
         targetLanguage
       );
-      return await cache.add(originalText, translatedText, detectedLanguage);
+      return await cache.add(originalText, translatedText, detectedLanguage, ticket);
     } catch (e) {
       console.error(e);
     }
@@ -682,6 +692,7 @@ const translationCache = (function () {
    * @param {boolean} reload
    */
   translationCache.deleteTranslationCache = async (reload = false) => {
+    generation++;
     try {
       // Deletes old translation cache.
       if (indexedDB && indexedDB.deleteDatabase) {
@@ -699,7 +710,35 @@ const translationCache = (function () {
   };
 
   let promiseCalculatingStorage = null;
+  async function manage(request, sender) {
+    if(sender.id !== chrome.runtime.id || sender.url?.split('?')[0] !== chrome.runtime.getURL('options/cache.html')) throw new Error('请从缓存管理页面操作');
+    if(sender.tab?.incognito || chrome.extension?.inIncognitoContext) throw new Error('无痕窗口不查看本地缓存');
+    const names = await cacheList.names();
+    if(request.action === 'freeCacheNames')return {names};
+    if(!names.includes(request.database))throw new Error('该服务暂无缓存');
+    const match = /^(.*?)@([^.]+)\.(.+)$/.exec(request.database);
+    if(!match)throw new Error('缓存服务无效');
+    const cache = await cacheList.getCache(...match.slice(1));
+    if(!cache.db)throw new Error('缓存数据库不可用');
+    const keys = request.action === 'freeCacheDelete' ? request.keys : [request.key];
+    if(request.action !== 'freeCacheList' && (!Array.isArray(keys) || !keys.length || keys.length>1000 || keys.some(key=>typeof key!=='string'||!/^[a-f0-9]{40}$/.test(key))))throw new Error('缓存记录无效');
+    if(request.action === 'freeCacheDelete') {
+      generation++;
+      // Invalidate service memory, including pending results, before deleting disk rows.
+      translationService.invalidateCachedResults(match[1]);
+      cache.cache.clear();
+      await new Promise((resolve,reject)=>{const tx=cache.db.transaction('cache','readwrite');keys.forEach(key=>tx.objectStore('cache').delete(key));tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error);});return {};
+    }
+    if(request.action === 'freeCacheRead')return {entry:await new Promise((resolve,reject)=>{const get=cache.db.transaction('cache').objectStore('cache').get(request.key);get.onsuccess=()=>resolve(get.result);get.onerror=()=>reject(get.error);})};
+    const query=String(request.query||'').slice(0,200).toLowerCase(),offset=Math.min(1e7,Math.max(0,Number(request.offset)||0)),entries=[];
+    let total=0;
+    await new Promise((resolve,reject)=>{const cursor=cache.db.transaction('cache').objectStore('cache').openCursor();cursor.onerror=()=>reject(cursor.error);cursor.onsuccess=()=>{const item=cursor.result;if(!item)return resolve();const row=item.value;if(!query || (row.originalText+' '+row.translatedText).toLowerCase().includes(query)){if(total>=offset && entries.length<30)entries.push({key:row.key,createdAt:row.createdAt,preview:row.translatedText.slice(0,350),originalPreview:row.originalText.slice(0,200),metadata:{service:match[1],sourceLanguage:match[2],targetLanguage:match[3]}});total++;}item.continue();};});
+    return {entries,total};
+  }
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if(['freeCacheNames','freeCacheList','freeCacheRead','freeCacheDelete'].includes(request?.action)) {
+      manage(request,sender).then(value=>sendResponse({ok:true,...value}),error=>sendResponse({ok:false,error:error.message||'缓存操作失败'}));return true;
+    }
     if (request.action === "getCacheSize") {
       if (!promiseCalculatingStorage) {
         promiseCalculatingStorage = cacheList.calculateSize();

@@ -17,6 +17,8 @@
 - `@ai-sdk/provider-utils` 当前 npm 包未附根目录许可文件；其 Apache-2.0 声明来自包元数据，对应项目许可保存在 `licenses/ai-provider-utils.txt`，来源为 [vercel/ai LICENSE](https://github.com/vercel/ai/blob/main/LICENSE)。
 
 ## 样式、图标与素材
+图片 OCR 依赖 PaddleOCR.js、PaddleOCR 官方 PP-OCRv5 mobile / PP-OCRv6 small 权重（Apache-2.0），OpenCV.js（Apache-2.0，含上游声明）、ONNX Runtime Web（MIT）、clipper-lib 和 js-yaml；完整声明由锁文件生成到 THIRD_PARTY_LICENSES.txt。模型权重按用户操作下载，不随扩展 ZIP 打包。OpenCV 的四种动态 embind 包装器在构建时改为等价静态闭包，源适配器为 scripts/opencv-csp-loader.cjs。
+
 
 - W3.CSS 4.13：Jan Egil 和 Borge Refsnes；保留文件头。[官方说明](https://www.w3schools.com/w3css/w3css_downloads.asp)允许免费使用。
 - W3.CSS 包含的 normalize.css 片段：Nicolas Gallagher 和 Jonathan Neal，MIT；全文见 `licenses/normalize.css-MIT.txt`。

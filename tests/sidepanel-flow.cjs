@@ -140,8 +140,9 @@ module.exports = async function sidepanelFlow({ context, worker, id, page, calls
   expect(fs.readFileSync(await subtitleDownload.path(), "utf8")).toBe(srt.replace("Keep learning.", "Keep learning.\r\n译文：Keep learning."));
   await panel.screenshot({ path: path.resolve("build/sidebar-subtitles-dark.png"), fullPage: true });
   await panel.getByRole("tab", { name: "图片", exact: true }).click();
-  await expect(panel.getByText("图片识别尚未接入", { exact: true })).toBeVisible();
-  await panel.getByRole("button", { name: "前往文本翻译 →", exact: true }).click();
+  await expect(panel.locator('#ocr-model option')).toHaveCount(2);
+  await expect(panel.locator('#recognize-image')).toBeDisabled();
+  await panel.getByRole("tab", { name: "文本", exact: true }).click();
   await expect(panel.getByRole("tab", { name: "文本", exact: true })).toHaveAttribute("aria-selected", "true");
   await panel.getByRole("tab", { name: "文本", exact: true }).press("ArrowDown");
   await expect(panel.getByRole("tab", { name: "文档", exact: true })).toBeFocused();

@@ -5,6 +5,27 @@ globalThis.indexedDB = { open: () => ({}) };
 globalThis.chrome = { runtime: { onMessage: { addListener() {} } }, tabs: { onRemoved: { addListener() {} }, onUpdated: { addListener() {} } } };
 globalThis.twpConfig = { onReady: () => new Promise(() => {}), onChanged() {} };
 const service = import("../extension/ai-service.js");
+test('ordinary official DeepSeek translation disables default thinking without leaking vendor options to other providers', async () => {
+  const {translationProviderOptions, paragraphCacheIdentity} = await service;
+  for (const model of ['deepseek-flash','deepseek-v4-flash','deepseek-v4-flash-vision-exp','deepseek-v4-pro']) {
+    assert.deepEqual(translationProviderOptions({baseURL:'https://api.deepseek.com/v1',model}), {twp:{thinking:{type:'disabled'}}});
+  }
+  for (const profile of [{baseURL:'https://other.example',model:'deepseek-flash'}, {baseURL:'https://api.deepseek.com.evil.example',model:'deepseek-flash'}, {baseURL:'https://api.deepseek.com',model:'deepseek-reasoner'}, {baseURL:'bad',model:'deepseek-flash'}]) assert.equal(translationProviderOptions(profile), undefined);
+  const profile = {id:'one',updated:1,baseURL:'https://api.deepseek.com',model:'deepseek-flash'};
+  assert.notEqual(paragraphCacheIdentity(profile,{},'instructions','text'),paragraphCacheIdentity({...profile,baseURL:'https://other.example'}, {}, 'instructions','text'));
+});
+test('the installed compatible SDK serializes DeepSeek thinking control into the request body', async () => {
+  const {translationProviderOptions} = await service;
+  const {generateText} = await import('ai');
+  const {createOpenAICompatible} = await import('@ai-sdk/openai-compatible');
+  let body;
+  const provider = createOpenAICompatible({name:'twp',baseURL:'https://api.deepseek.com',fetch:async (_url, options) => {
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({choices:[{message:{role:'assistant',content:'translated'},finish_reason:'stop'}]}),{headers:{'content-type':'application/json'}});
+  }});
+  await generateText({model:provider('deepseek-flash'),prompt:'test only',providerOptions:translationProviderOptions({baseURL:'https://api.deepseek.com',model:'deepseek-flash'}),maxRetries:0});
+  assert.deepEqual(body.thinking,{type:'disabled'});
+});
 test('web paragraph cache ignores batch IDs and neighbors but isolates all effective translation inputs', async () => {
   const {paragraphCacheIdentity} = await service;
   const profile = {id:'deepseek-flash', updated:1};

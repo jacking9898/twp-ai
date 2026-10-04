@@ -580,6 +580,7 @@ const translationService = (function () {
 
           /** @type {TranslationInfo} */
           const progressInfo = {
+            cacheGeneration: translationCache.generation(),
             originalText: requestString,
             translatedText: null,
             detectedLanguage: null,
@@ -732,6 +733,7 @@ const translationService = (function () {
                     transInfo.originalText,
                     transInfo.translatedText,
                     transInfo.detectedLanguage,
+                    transInfo.cacheGeneration,
                   );
                 }
               }
@@ -1546,6 +1548,7 @@ const translationService = (function () {
 
   /** @type {Map<string, Service>} */
   const serviceList = new Map();
+  translationService.invalidateCachedResults = serviceName => serviceList.get(serviceName)?.translationsInProgress.clear();
 
   serviceList.set("google", googleService);
   serviceList.set("yandex", yandexService);

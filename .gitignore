@@ -20,3 +20,4 @@ src/background/aiService.bundle.js
 *.pfx
 *.crx
 src/background/aiService.bundle.js.LICENSE.txt
+src/lib/ocr/

@@ -32,6 +32,13 @@ gulp.task("ai-bundle", () => new Promise((resolve, reject) => {
   }));
 }));
 gulp.task("licenses", cb => { collectLicenses(); embedTooltipStyles(); cb(); });
+gulp.task("ocr-bundle", () => new Promise((resolve, reject) => {
+  const compiler = webpack(require("./webpack.ocr.cjs"));
+  compiler.run((error, stats) => compiler.close(closeError => {
+    if (error || closeError || stats?.hasErrors()) reject(error || closeError || new Error(stats.toString({all: false, errors: true})));
+    else resolve();
+  }));
+}));
 gulp.task("firefox-copy", () => gulp.src(["src/**/*", "!src/icons/icon-*.png", "!src/icons/bilingual.png"], {cwd: root, encoding: false}).pipe(gulp.dest(path.join(build, firefox))));
 gulp.task("pdf-copy", cb => {
   const dependency = path.join(root, "node_modules/pdfjs-dist");
@@ -40,6 +47,12 @@ gulp.task("pdf-copy", cb => {
   for (const file of ["pdf.mjs", "pdf.worker.mjs"]) fs.copyFileSync(path.join(dependency, "legacy/build", file), path.join(destination, file));
   fs.copyFileSync(path.join(dependency, "LICENSE"), path.join(destination, "LICENSE"));
   for (const dir of ["cmaps", "standard_fonts", "wasm", "iccs"]) fs.cpSync(path.join(dependency, dir), path.join(destination, dir), {recursive: true});
+  cb();
+});
+gulp.task("ocr-copy", cb => {
+  const dir = path.join(root, "node_modules/onnxruntime-web/dist"), dest = path.join(build, firefox, "lib/ocr/ort");
+  fs.mkdirSync(dest, {recursive: true});
+  for (const file of ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]) fs.copyFileSync(path.join(dir, file), path.join(dest, file));
   cb();
 });
 // Rebuild the inherited polyfill from the locked dependencies, so bundled code
@@ -86,8 +99,9 @@ gulp.task("zip", () => Promise.all([chromium, firefox].map(dir => pipeline(
 ))));
 gulp.task("source-zip", () => gulp.src([
   "src/**/*", "extension/**/*", "scripts/**/*", "tests/**/*", "docs/**/*", "licenses/**/*", "assets/branding/**/*", ".github/**/*",
-  ".gitignore", "LICENSE", "PRIVACY", "*.md", "THIRD_PARTY_LICENSES.txt", "package.json", "package-lock.json", "gulpfile.js", "polyfill.js", "webpack.ai.cjs", "playwright.config.js", "jsconfig.json",
+  ".gitignore", "LICENSE", "PRIVACY", "*.md", "THIRD_PARTY_LICENSES.txt", "package.json", "package-lock.json", "gulpfile.js", "polyfill.js", "webpack.*.cjs", "playwright.config.js", "jsconfig.json",
   "!src/background/aiService.bundle.js", "!src/background/aiService.bundle.js.LICENSE.txt",
+  "!src/lib/ocr", "!src/lib/ocr/**/*",
 ], {cwd: root, base: root, dot: true, encoding: false}).pipe(zip(`Yedu_${version}_Source.zip`)).pipe(gulp.dest(build)));
 gulp.task("checksums", cb => {
   const {createHash} = require("node:crypto");
@@ -99,4 +113,4 @@ gulp.task("chrome-sign", cb => {
   if (!process.argv.includes("--sign")) return cb();
   return require("node-file-dialog")({type: "open-file"}).then(files => require("crx3")([path.join(build, chromium, "manifest.json")], {keyPath: files[0], crxPath: path.join(build, `${chromium.replace("TWP_AI_", "Yedu_")}.crx`)}));
 });
-gulp.task("default", gulp.series("licenses", "ai-bundle", "clean", "firefox-copy", "pdf-copy", "polyfill-bundle", "legal-copy", "firefox-manifest", "babel", "source-notice", "chrome-copy", "chrome-manifest", "zip", "source-zip", "checksums", "chrome-sign"));
+gulp.task("default", gulp.series("licenses", "ai-bundle", "ocr-bundle", "clean", "firefox-copy", "pdf-copy", "ocr-copy", "polyfill-bundle", "legal-copy", "firefox-manifest", "babel", "source-notice", "chrome-copy", "chrome-manifest", "zip", "source-zip", "checksums", "chrome-sign"));

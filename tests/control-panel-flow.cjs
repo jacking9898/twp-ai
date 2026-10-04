@@ -113,7 +113,8 @@ module.exports = async ({ context, worker, id, page, calls, configure }) => {
   await control('#selection-triggers [data-value="icon"]').click();
   await page.screenshot({ path: path.resolve("build/control-selection.png") });
   await control("#region-tab").click();
-  await expect(control("#region-settings")).toContainText("尚未接入");
+  await expect(control("#region-settings")).toContainText("本地识别");
+  await expect(control("#region-start")).toBeEnabled();
   await control("#word-tab").click();
   await control("#close").click(); await clearSelection(); await selectText();
   await expect(quick("#trigger")).toBeVisible();
@@ -174,6 +175,24 @@ module.exports = async ({ context, worker, id, page, calls, configure }) => {
   await control("#toggle").click();
   await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
   await openPanel();
+  // Utility buttons need readable foreground/background pairs in both themes.
+  for (const scheme of ['light','dark']) {
+    await page.emulateMedia({colorScheme:scheme});
+    await expect(control('#cache-manage')).toBeVisible();
+    const style = await control('#cache-manage').evaluate(button=>{
+      const css=getComputedStyle(button);
+      const luminance=color=>{const rgb=color.match(/[\d.]+/g).slice(0,3).map(v=>{const c=Number(v)/255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4;});return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+      const fg=luminance(css.color),bg=luminance(css.backgroundColor);
+      return {contrast:(Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05),height:button.getBoundingClientRect().height};
+    });
+    expect(style.contrast).toBeGreaterThanOrEqual(4.5);expect(style.height).toBeGreaterThanOrEqual(32);
+    const button=await control('#cache-manage').boundingBox(),select=await control('#cache-duration').boundingBox();
+    expect(Math.abs(button.width-select.width)).toBeLessThan(1);
+    await control('#cache-options').screenshot({path:path.resolve(`build/cache-button-${scheme}.png`)});
+  }
+  const cachedPage=context.waitForEvent('page'),beforeCache=calls.length;
+  await control('#cache-manage').click();const manager=await cachedPage;
+  await manager.waitForURL('**/options/cache.html');await expect(manager.locator('h1')).toHaveText('翻译缓存');expect(calls.length).toBe(beforeCache);await manager.close();
   await page.emulateMedia({ colorScheme: "dark" });
   await page.screenshot({ path: path.resolve("build/control-panel-complete.png") });
   await control("#panel").screenshot({ path: path.resolve("build/control-panel-preview.png") });

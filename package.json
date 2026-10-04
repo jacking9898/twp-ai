@@ -14,10 +14,16 @@
     "build:sign": "npx gulp --sign",
     "polyfill": "npx webpack --entry=./polyfill.js --output-path=./src/lib --output-filename=polyfill.js -d inline-source-map",
     "build:ai": "webpack --config webpack.ai.cjs",
+    "build:ocr": "webpack --config webpack.ocr.cjs",
+    "test:image": "node tests/image-translation-extension.cjs",
+    "test:region-cache-ui": "node --test tests/region-capture-background.cjs && node tests/region-cache-ui-extension.cjs",
+    "test:image-layout": "node --test tests/image-ocr-layout.cjs",
     "test:ai": "node --test tests/ai-service.cjs tests/presets.cjs tests/ai-insights.cjs tests/ai-transport.cjs",
     "test:ai-insights": "node tests/ai-insights-extension.cjs",
     "test:ai-scope": "node tests/ai-scope-extension.cjs",
     "test:web-cache": "node tests/web-cache-extension.cjs",
+    "test:context-lifecycle": "node --test tests/selection-context.cjs && node tests/context-lifecycle-extension.cjs",
+    "test:context-upgrade": "node tests/context-upgrade-extension.cjs",
     "test:ai-extension": "node tests/ai-extension.cjs",
     "test:ai-resilience": "node tests/ai-resilience-extension.cjs",
     "test:sidebar": "node --test tests/documents.cjs tests/sidepanel-background.cjs tests/pdf-cache.cjs",
@@ -38,9 +44,11 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.62",
+    "@paddleocr/paddleocr-js": "0.4.2",
     "ai": "^7.0.127",
     "core-js": "^3.26.1",
     "htmlparser2": "^10.0.0",
+    "onnxruntime-web": "1.24.3",
     "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {

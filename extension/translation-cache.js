@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Separate from credentials and exported preferences. Only hashes and validated
-// translations are persisted; a failed/quota-limited cache never fails translation.
+// translations and bounded, public display metadata are persisted; a failed cache
+// never fails translation. Original source text and credentials are not stored here.
 const MAX_ENTRIES = 1000, MAX_BYTES = 20 * 1024 * 1024;
 let database, epoch = 0, sequence = 0;
 const latest = new Map();
@@ -49,9 +50,11 @@ export async function readCache(key, policy) {
   } catch { /* Caching is optional. */ }
   return null;
 }
-export async function writeCache(key, translations, policy, ticket) {
+export async function writeCache(key, translations, policy, ticket, metadata = {}) {
   try {
-    const bytes = JSON.stringify(translations).length * 2 + 256;
+    const info = {};
+    for(const field of ['profileId','service','model','context','kind','sourceLanguage','targetLanguage'])if(typeof metadata[field]==='string')info[field]=metadata[field].slice(0,200);
+    const bytes = JSON.stringify([translations,info]).length * 2 + 256;
     if (!policy.enabled || bytes > MAX_BYTES || epoch !== ticket.epoch || latest.get(key) !== ticket) return;
     await transaction("readwrite", store => {
       if (epoch !== ticket.epoch || latest.get(key) !== ticket) return;
@@ -63,7 +66,7 @@ export async function writeCache(key, translations, policy, ticket) {
           if (!isFresh(row, policy) || count >= MAX_ENTRIES || size + row.bytes > MAX_BYTES) store.delete(row.key);
           else { size += row.bytes; count++; }
         }
-        store.put({key, translations, createdAt: Date.now(), bytes});
+        store.put({key, translations, metadata:info, createdAt: Date.now(), bytes});
       };
     });
   } catch { /* Quota errors must not discard the translation. */ }
@@ -73,6 +76,24 @@ export async function clearCache() {
   epoch++; latest.clear();
   // Surface failure to the settings UI instead of claiming deletion succeeded.
   await transaction("readwrite", store => store.clear());
+}
+export async function listCache(policy, {query='',offset=0,limit=30} = {}) {
+  const rows = (await transaction('readonly',store=>store.getAll())).filter(row=>isFresh(row,policy));
+  const search=String(query).trim().toLocaleLowerCase().slice(0,200);
+  const matched=rows.filter(row=>!search || [row.metadata?.service,row.metadata?.model,row.metadata?.context,...row.translations].join('\n').toLocaleLowerCase().includes(search)).sort((a,b)=>b.createdAt-a.createdAt);
+  const start=Math.max(0,Number(offset)||0), count=Math.max(1,Math.min(50,Number(limit)||30));
+  return {total:matched.length,entries:matched.slice(start,start+count).map(row=>({key:row.key,createdAt:row.createdAt,expiresAt:row.createdAt+policy.ttl,bytes:row.bytes,metadata:row.metadata||{},segments:row.translations.length,preview:row.translations.join('\n').slice(0,350)}))};
+}
+export async function cacheDetail(key,policy) {
+  const row=await transaction('readonly',store=>store.get(key));
+  if(!isFresh(row,policy))return null;
+  return {translations:row.translations,metadata:row.metadata||{}};
+}
+export async function deleteCache(keys) {
+  if(!Array.isArray(keys)||!keys.length||keys.length>1000||keys.some(key=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key)))throw new Error('请选择有效的缓存记录');
+  // Pending writers cannot put a just-deleted result back after deletion.
+  epoch++;latest.clear();
+  await transaction('readwrite',store=>{for(const key of new Set(keys))store.delete(key);});
 }
 export async function pruneCache(policy) {
   epoch++; latest.clear();

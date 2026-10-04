@@ -8,8 +8,8 @@ const twpAIPresets = (() => {
   const imported = typeof module !== "undefined" ? require("./builtinPresets.js") : twpBuiltinPresets;
   experts.push(...imported.experts);
   const styles = [
-    ["faithful", "忠实原文", "Preserve the original register and structure while using idiomatic target-language grammar."],
     ["auto", "自动匹配场景", "Infer the appropriate register from the source genre and adapt wording accordingly without changing meaning."],
+    ["faithful", "忠实原文", "Preserve the original register and structure while using idiomatic target-language grammar."],
     ["fluent", "自然流畅", "Use idiomatic, fluent phrasing and smooth transitions without adding information."],
     ["technical", "技术文档", "Use precise, concise technical prose, consistent terms and clear procedural wording."],
     ["academic", "学术论文", "Use formal, restrained academic prose and preserve qualifications."],

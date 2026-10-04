@@ -5,17 +5,51 @@
 
 var translateSelected = {};
 
-function getTabHostName() {
-  return new Promise((resolve) =>
-    chrome.runtime.sendMessage({ action: "getTabHostName" }, (result) => {
-      checkedLastError();
+// Every extension API boundary must handle invalidation, including the race
+// between checking runtime.id and making the call, and delayed callbacks.
+const selectedTextContext = (() => {
+  let active = true;
+  let onInvalidated = () => {};
+  function invalidate() {
+    if (!active) return;
+    active = false;
+    onInvalidated();
+  }
+  function run(operation, fallback = () => {}) {
+    try {
+      if (!active || !chrome.runtime?.id) {
+        invalidate();
+        return fallback();
+      }
+      return operation();
+    } catch (error) {
+      if (!/extension context invalidated/i.test(error?.message || "")) throw error;
+      invalidate();
+      return fallback();
+    }
+  }
+  function send(message, callback = () => {}, fallback = () => {}) {
+    return run(() => chrome.runtime.sendMessage(message, (result) => run(() => {
+      const error = chrome.runtime.lastError;
+      if (error && /extension context invalidated/i.test(error.message)) {
+        invalidate();
+        return fallback();
+      }
+      callback(result);
+    }, fallback)), fallback);
+  }
+  return { run, send, available: () => run(() => true, () => false),
+    onInvalidated(callback) { onInvalidated = callback; if (!active) callback(); } };
+})();
 
-      resolve(result);
-    })
-  );
+function getTabHostName() {
+  return new Promise((resolve) => selectedTextContext.send(
+    { action: "getTabHostName" }, resolve, () => resolve(undefined)
+  ));
 }
 
 Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
+  if (!selectedTextContext.available()) return;
   const tabHostName = _[1];
 
   let gSelectionInfo;
@@ -55,6 +89,8 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
     "dontShowIfSelectedTextIsUnknown"
   );
   let fooCount = 0;
+  let contextInvalidated = false;
+  let translateNewInputTimerHandler;
 
   pageTranslator.onGetOriginalTabLanguage(function (tabLanguage) {
     originalTabLanguage = tabLanguage;
@@ -64,10 +100,13 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   });
 
   async function detectTextLanguage(text) {
+    if (!selectionContextAvailable()) return { lang: "und", isReliable: false };
     if (!chrome.i18n.detectLanguage) return "und";
 
     return await new Promise((resolve) => {
-      chrome.i18n.detectLanguage(text, (result) => {
+      const unavailable = () => resolve({ lang: "und", isReliable: false });
+      selectedTextContext.run(() => chrome.i18n.detectLanguage(text, (result) => {
+        if (!selectionContextAvailable()) return unavailable();
         if (!result) return resolve({ lang: "und", isReliable: false });
 
         for (const langInfo of result.languages) {
@@ -78,23 +117,22 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
         }
 
         return resolve({ lang: "und", isReliable: false });
-      });
+      }), unavailable);
     });
   }
 
   let isPlayingAudio = false;
 
   function playAudio(text, targetLanguage, cbOnEnded = () => {}) {
+    if (!selectionContextAvailable()) return;
     isPlayingAudio = true;
-    chrome.runtime.sendMessage(
+    selectedTextContext.send(
       {
         action: "textToSpeech",
         text,
         targetLanguage,
       },
       () => {
-        checkedLastError();
-
         isPlayingAudio = false;
         cbOnEnded();
       }
@@ -104,11 +142,12 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   function stopAudio() {
     if (!isPlayingAudio) return;
     isPlayingAudio = false;
-    chrome.runtime.sendMessage(
+    if (!selectionContextAvailable()) return;
+    selectedTextContext.send(
       {
         action: "stopAudio",
       },
-      checkedLastError
+      () => {}
     );
   }
 
@@ -173,6 +212,10 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   let isCSSLoaded = false;
 
   function init() {
+    if (!selectionContextAvailable()) return;
+    const stylesheetURL = selectedTextContext.run(() =>
+      chrome.runtime.getURL("/contentScript/css/translateSelected.css"));
+    if (!stylesheetURL) return;
     destroy();
 
     window.isTranslatingSelected = true;
@@ -274,7 +317,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
     link.setAttribute("rel", "stylesheet");
     link.setAttribute(
       "href",
-      chrome.runtime.getURL("/contentScript/css/translateSelected.css")
+      stylesheetURL
     );
     isCSSLoaded = false;
     link.onload = (e) => {
@@ -480,7 +523,6 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
       }
     };
 
-    let translateNewInputTimerHandler;
     eOrigText.oninput = () => {
       clearTimeout(translateNewInputTimerHandler);
       translateNewInputTimerHandler = setTimeout(translateNewInput, 600);
@@ -779,6 +821,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   function destroy() {
     window.isTranslatingSelected = false;
     fooCount++;
+    clearTimeout(translateNewInputTimerHandler);
     stopAudio();
     if (!divElement) return;
 
@@ -909,6 +952,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   }
 
   function translateNewInput() {
+    if (!selectionContextAvailable()) return;
     fooCount++;
     const currentFooCount = fooCount;
     stopAudio();
@@ -1055,6 +1099,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   }
 
   async function onUp(e) {
+    if (!selectionContextAvailable()) return;
     if (e.target == divElement) return;
 
     const clientX = Math.max(
@@ -1069,6 +1114,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
     const selectedText = getSelectionText().trim();
     if (!selectedText || selectedText.length < 1) return;
     let detectedLanguage = (await detectTextLanguage(selectedText)).lang;
+    if (!selectionContextAvailable()) return;
     if (!detectedLanguage) detectedLanguage = "und";
 
     if (
@@ -1145,6 +1191,7 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   let lastTimePressedCtrl = null;
 
   function onKeyUp(e) {
+    if (!selectionContextAvailable()) return;
     if (typeof twpInteractiveTranslator !== "undefined" && twpInteractiveTranslator.available) return;
     if (e.key === "Escape") {
       destroy();
@@ -1170,20 +1217,51 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
   document.addEventListener("keyup", onKeyUp, true);
 
   let windowIsInFocus = true;
-  window.addEventListener("focus", function (e) {
-    windowIsInFocus = true;
-    chrome.runtime.sendMessage(
-      { action: "thisFrameIsInFocus" },
-      checkedLastError
-    );
-  });
-  window.addEventListener("blur", function (e) {
-    windowIsInFocus = false;
-  });
-
-  window.addEventListener("beforeunload", function (e) {
+  function invalidateSelectionContext() {
+    if (contextInvalidated) return;
+    contextInvalidated = true;
+    // A reloaded extension cannot service listeners left in the old document.
+    // Stop these listeners and pending selection UI instead of reporting every focus.
+    isPlayingAudio = false;
+    clearTimeout(showButtonTimerHandler);
+    showTranslateSelectedButton = "no";
+    updateEventListener();
+    document.removeEventListener("keyup", onKeyUp, true);
+    window.removeEventListener("focus", onWindowFocus);
+    window.removeEventListener("blur", onWindowBlur);
+    window.removeEventListener("beforeunload", onWindowUnload);
+    window.removeEventListener("pageshow", onWindowShow);
     destroy();
-  });
+  }
+  function selectionContextAvailable() {
+    if (contextInvalidated) return false;
+    if (!selectedTextContext.available()) {
+      invalidateSelectionContext();
+      return false;
+    }
+    return true;
+  }
+  function onWindowFocus() {
+    if (!selectionContextAvailable()) return;
+    windowIsInFocus = true;
+    selectedTextContext.send({ action: "thisFrameIsInFocus" });
+  }
+  function onWindowBlur() {
+    windowIsInFocus = false;
+  }
+  function onWindowUnload() {
+    if (!selectionContextAvailable()) return;
+    destroy();
+  }
+  function onWindowShow() {
+    // A cached video document may return after the extension was reloaded.
+    selectionContextAvailable();
+  }
+  window.addEventListener("focus", onWindowFocus);
+  window.addEventListener("blur", onWindowBlur);
+  window.addEventListener("beforeunload", onWindowUnload);
+  window.addEventListener("pageshow", onWindowShow);
+  selectedTextContext.onInvalidated(invalidateSelectionContext);
 
   function updateEventListener() {
     if (
@@ -1233,7 +1311,8 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
 
   updateEventListener();
 
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  selectedTextContext.run(() => chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (!selectionContextAvailable()) return;
     if (request.action === "TranslateSelectedText") {
       if (typeof twpInteractiveTranslator !== "undefined" && twpInteractiveTranslator.available) {
         twpInteractiveTranslator.ready.then(() => twpInteractiveTranslator.translateSelection());
@@ -1284,5 +1363,5 @@ Promise.all([twpConfig.onReady(), getTabHostName()]).then(function (_) {
         });
       }
     }
-  });
+  }));
 });

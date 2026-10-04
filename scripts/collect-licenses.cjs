@@ -8,12 +8,23 @@ function collectLicenses() {
   for (const [location, entry] of Object.entries(lock.packages).filter(([p, e]) => p && !e.dev).sort(([a], [b]) => a.localeCompare(b))) {
     // Node-only optional canvas binaries are not bundled in this browser app.
     if (entry.optional && location.includes("@napi-rs/canvas")) continue;
+    // guid-typescript belongs exclusively to ORT's legacy WebGL/onnxjs backend.
+    // webpack.ocr.cjs resolves ORT to the WASM-only build, which excludes it.
+    if (location === 'node_modules/guid-typescript') continue;
     const dir = path.join(root, location);
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
     if (pkg.version !== entry.version) throw new Error(`Dependency version mismatch: ${pkg.name}. Run npm ci.`);
     const files = fs.readdirSync(dir).filter(name => /^(license|licence|copying|notice)(\.|$)/i.test(name) && fs.statSync(path.join(dir, name)).isFile());
     let texts = files.sort().map(name => `${name}\n${fs.readFileSync(path.join(dir, name), "utf8")}`);
     if (!texts.length && pkg.name === "@ai-sdk/provider-utils" && entry.license === "Apache-2.0") texts = [fs.readFileSync(path.join(root, "licenses/ai-provider-utils.txt"), "utf8")];
+    if (!texts.length && pkg.name === "@paddleocr/paddleocr-js" && entry.license === "Apache-2.0") texts = [fs.readFileSync(path.join(root, "licenses/paddleocr-Apache-2.0.txt"), "utf8")];
+    if (!texts.length && ['onnxruntime-web', 'onnxruntime-common'].includes(pkg.name) && entry.license === 'MIT') texts = [fs.readFileSync(path.join(root, 'licenses/onnxruntime-MIT.txt'), 'utf8'), fs.readFileSync(path.join(root, 'licenses/onnxruntime-ThirdPartyNotices.txt'), 'utf8')];
+    if (!texts.length && pkg.name === "clipper-lib") {
+      // The npm release preserves its license in the source header, not a standalone file.
+      const source = fs.readFileSync(path.join(dir, "clipper.js"), "utf8");
+      const header = source.match(/^(?:\s*\/\*[\s\S]*?\*\/\s*)+/)?.[0];
+      if (header?.includes("Boost Software License")) texts = [header, fs.readFileSync(path.join(root, "licenses/Boost-1.0.txt"), "utf8")];
+    }
     if (!texts.length) throw new Error(`Missing license text for ${pkg.name}; review before distributing.`);
     sections.push(`\n${"=".repeat(72)}\n${pkg.name}@${entry.version}\nDeclared license: ${entry.license || pkg.license}\n${texts.join("\n")}`);
     if (pkg.name === "@ai-sdk/provider-utils") sections.push("\nEmbedded zod3-to-json-schema (ISC):\n" + fs.readFileSync(path.join(dir, "src/to-json-schema/zod3-to-json-schema/LICENSE"), "utf8"));

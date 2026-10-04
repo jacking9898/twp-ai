@@ -16,7 +16,7 @@ const twpAIClient = (() => {
     pending.set(id, group);
     try {
       return (await call({ action: "aiTranslate", id, targetLanguage, context,
-        sourceLanguage: options.sourceLanguage || "auto",
+        sourceLanguage: options.sourceLanguage || "auto", cacheLabel: options.cacheLabel,
         forceRefresh: !!options.forceRefresh, documentKey: options.documentKey,
         cacheBySegment: !!options.cacheBySegment,
         profileId: options.profileId, expertId: options.expertId, styleId: options.styleId, glossaryId: options.glossaryId,

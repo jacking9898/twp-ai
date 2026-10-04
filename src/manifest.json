@@ -150,6 +150,7 @@
       "all_frames": false,
       "js": [
         "/contentScript/popupMobile.js",
+        "/contentScript/regionTranslator.js",
         "/contentScript/floatingTranslator.js"
       ]
     }

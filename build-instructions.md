@@ -18,6 +18,8 @@ npm run test:release
 
 `npm ci` 需要访问 npm 仓库。构建读取本机依赖，将 AI SDK 打包到扩展中，并复制本地静态资源；不会下载第三方提示词、访问用户浏览器资料或请求翻译服务。`build/` 是可再生输出，每次完整构建都会清空重建，不要存放个人文件。
 
+本地图片识别使用 PaddleOCR.js 0.4.2 和 ONNX Runtime Web 1.24.3。构建将 OCR Worker、OpenCV 和 WASM 运行时打包到 `lib/ocr/`，不从网络加载 JavaScript。首次识别时按所选模型下载 Paddle 官方的 ONNX TAR 权重，校验 SHA-256 后保存在浏览器 Cache Storage，之后可离线识别。详情见 [图片识别](docs/image-translation.md)。
+
 生成目录（版本取自 manifest）：
 
 ```text
