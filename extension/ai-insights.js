@@ -15,10 +15,10 @@ export function containsTerm(source,term){const escaped=term.replace(/[.*+?^${}(
 export function usageOf(value){const input=valid(value?.inputTokens),output=valid(value?.outputTokens);return {input,output,total:valid(value?.totalTokens)??(input!==null&&output!==null?input+output:null),reasoning:valid(value?.outputTokenDetails?.reasoningTokens),cachedInput:valid(value?.inputTokenDetails?.cacheReadTokens)};}
 export function addUsage(total={},row){const result={...total};for(const k of ['requests','cacheHits','unknown','input','output','total','reasoning','cachedInput'])result[k] ||= 0;if(row.cached)result.cacheHits++;else{result.requests++;if(row.usage.total===null)result.unknown++;for(const k of ['input','output','total','reasoning','cachedInput'])result[k]+=row.usage[k]??0;}return result;}
 export async function recordUsage(row){row={...row,key:crypto.randomUUID(),time:Date.now()};await tx(['totals','events'],'readwrite',t=>{const totals=t.objectStore('totals');for(const key of ['all','session:'+row.session]){const r=totals.get(key);r.onsuccess=()=>totals.put({...addUsage(r.result,row),key});}const events=t.objectStore('events');events.put(row);const all=events.getAll();all.onsuccess=()=>{for(const entry of all.result.sort((a,b)=>b.time-a.time).slice(2000))events.delete(entry.key);};});}
-export async function usageStats(session,requestedPage=0){return tx(['totals','events'],'readonly',(t,done)=>{
+export async function usageStats(session,requestedPage=0,requestedPageSize=20){return tx(['totals','events'],'readonly',(t,done)=>{
   const all=t.objectStore('totals').get('all'),current=t.objectStore('totals').get('session:'+session),events=t.objectStore('events').getAll();
   events.onsuccess=()=>{
-    const rows=events.result.sort((a,b)=>b.time-a.time||b.key.localeCompare(a.key)),pageSize=100,eventCount=rows.length;
+    const rows=events.result.sort((a,b)=>b.time-a.time||b.key.localeCompare(a.key)),pageSize=[20,50,100].includes(requestedPageSize)?requestedPageSize:20,eventCount=rows.length;
     const page=Math.min(Number.isSafeInteger(requestedPage)&&requestedPage>=0?requestedPage:0,Math.max(0,Math.ceil(eventCount/pageSize)-1));
     done({total:all.result||{},current:current.result||{},events:rows.slice(page*pageSize,(page+1)*pageSize),page,pageSize,eventCount});
   };

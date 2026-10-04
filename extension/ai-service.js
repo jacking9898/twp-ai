@@ -348,7 +348,7 @@ async function insights(request,sender) {
   if(snapshot && Date.now()-snapshot.time>1800000){await chrome.storage.session.remove('aiInsightSnapshot:'+token);throw new PublicError('页面内容快照已过期，请从原网页或 PDF 重新打开');}
   if(request.action==='aiInsightClear'){await clearUsage(request.resetTotals===true);return {};}
   const target=String(request.targetLanguage||snapshot?.target||'zh-CN').slice(0,40);
-  if(request.action==='aiInsightRead')return {snapshot: snapshot?{...snapshot,text:undefined}:null,stats:await usageStats(snapshot?.session||'',request.page),terms:await readTerms(snapshot?.source,target),profiles:(await storage('getAll')).map(p=>({id:p.id,name:p.name,model:p.model}))};
+  if(request.action==='aiInsightRead')return {snapshot: snapshot?{...snapshot,text:undefined}:null,stats:await usageStats(snapshot?.session||'',request.page,request.pageSize),terms:await readTerms(snapshot?.source,target),profiles:(await storage('getAll')).map(p=>({id:p.id,name:p.name,model:p.model}))};
   if(!snapshot?.source)throw new PublicError('请从网页控制面板或 PDF 阅读器打开专属术语');
   if(request.action==='aiInsightSave') {
     try {return {terms:await saveTerms(snapshot.source,target,request.entries,request.revision)};}
