@@ -169,6 +169,7 @@
         "/contentScript/regionTranslator.js",
         "/lib/videoSubtitles.js",
         "/lib/youtubeSubtitles.js",
+        "/contentScript/videoDubbing.js",
         "/contentScript/videoTranslator.js",
         "/contentScript/floatingTranslator.js"
       ]

@@ -8,6 +8,10 @@
 
 ## JavaScript 依赖
 
+本地配音服务独立安装 faster-whisper、CTranslate2、PyTorch、OPUS-MT en-zh、GPT-SoVITS 及其发音和语言检测资源。其源码、模型和 Python 环境只保存在用户本机的 `.local-data/voice/`，不进入扩展安装 ZIP。上游源码与模型来源、固定源码修订和下载方式见 [local-voice/README.md](local-voice/README.md)；各自许可证随下载来源保留。本项目新编写的服务、扩展集成和部署脚本使用 MPL-2.0。
+
+本地配音默认参考音频按安装脚本从 [QwenAudio/CosyVoice](https://github.com/QwenAudio/CosyVoice/tree/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc/asset) 获取 `zero_shot_prompt.wav`（固定修订，Apache-2.0）；上游许可、来源和音频 SHA-256 保存在本机，样本不进入扩展或源码安装包。该音频仅作为 GPT-SoVITS 的音色参考，没有部署 CosyVoice 模型。
+
 构建脚本根据锁定的 `package-lock.json` 生成 [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)，保存生产依赖的声明和许可文本，并把它放进每个扩展安装包。该清单是生产依赖的保守全集，部分依赖可能被构建工具移除。
 
 - AI SDK、OpenAI-compatible provider 及相关 Vercel 包：Apache-2.0。

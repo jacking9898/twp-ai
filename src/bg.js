@@ -32,5 +32,6 @@ importScripts("/lib/videoSubtitles.js");
 importScripts("/background/videoSubtitles.js");
 importScripts("/lib/youtubeSubtitles.js");
 importScripts("/background/youtubeSubtitles.js");
+importScripts("/background/localVoice.js");
 importScripts("/background/textToSpeech.js");
 importScripts("/background/background.js");

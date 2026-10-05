@@ -189,6 +189,7 @@
         "/contentScript/regionTranslator.js",
         "/lib/videoSubtitles.js",
         "/lib/youtubeSubtitles.js",
+        "/contentScript/videoDubbing.js",
         "/contentScript/videoTranslator.js",
         "/contentScript/floatingTranslator.js"
       ]
@@ -213,6 +214,7 @@
       "/background/videoSubtitles.js",
       "/lib/youtubeSubtitles.js",
       "/background/youtubeSubtitles.js",
+      "/background/localVoice.js",
       "/off_screen.js",
       "/background/textToSpeech.js",
       "/background/background.js"

@@ -23,7 +23,7 @@ const twpVideoTranslator = (() => {
     const key=twpVideoSubtitles.preferenceKey(location.href),saved=savedVideoSettings();
     let disabledVideos=Array.isArray(saved.disabledVideos)?saved.disabledVideos:[];
     if(typeof on==='boolean'&&key){disabledVideos=disabledVideos.filter(value=>value!==key);if(!on)disabledVideos.push(key);}
-    twpConfig.set('videoTranslationPreferences',Object.fromEntries([...entries,[location.hostname,{disabledVideos:disabledVideos.slice(-100),service:$('service').value,profileId:$('profile').value,targetLanguage:$('target').value,display:$('display').value,position:$('position').value}]]));
+    twpConfig.set('videoTranslationPreferences',Object.fromEntries([...entries,[location.hostname,{disabledVideos:disabledVideos.slice(-100),service:$('service').value,profileId:$('profile').value,targetLanguage:$('target').value,display:$('display').value,position:$('position').value,voiceSpeed:Number($('voice-speed').value)}]]));
   }
   const $ = id => root.getElementById(id), escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const timeLabel = seconds => new Date(Math.max(0,seconds)*1000).toISOString().slice(11,23);
@@ -73,6 +73,7 @@ const twpVideoTranslator = (() => {
     output.mode='disabled';outputCues.clear();
   }
   function stop(message = '已停止翻译，恢复原字幕。') {
+    twpVideoDubbing.stop();
     cancelPending();enabled = all = failed = false;clearInterval(clock);
     cancelAnimationFrame(captionFrame);restoreSubtitlePositions();
     for (const remove of listeners.splice(0)) remove();
@@ -87,7 +88,7 @@ const twpVideoTranslator = (() => {
   function hidePanel() {if (!ui) return;$('settings-panel').hidden=true;$('player-more').setAttribute('aria-expanded','false');positionEntrance();}
   function showPanel() {if (!ui) return;setPlayerMenu(false);$('settings-panel').hidden=false;$('player-more').setAttribute('aria-expanded','true');}
   function syncQuickSettings() {
-    for(const id of ['display','position','target','service']){
+    for(const id of ['display','position','target','service','voice-speed']){
       const original=$(id),quick=$('quick-'+id);
       if(quick.options.length!==original.options.length)quick.replaceChildren(...[...original.options].map(option=>new Option(option.text,option.value)));
       quick.value=original.value;quick.disabled=original.disabled;
@@ -424,8 +425,11 @@ const twpVideoTranslator = (() => {
     $('close').textContent='收起';
     $('close').title='收起设置，字幕翻译继续运行';
     root.querySelector('section').id='settings-panel';
+    root.querySelector('section > .hint:last-child').textContent='字幕翻译默认提前约 60 秒，AI 按所选服务计费。在线字幕翻译不上传视频音频；本地配音仅发送字幕或音频分段到本机服务。';
     const sourceInfo=document.createElement('p');sourceInfo.id='source-info';sourceInfo.className='hint';$('source').after(sourceInfo);
+    const voiceSettings=document.createElement('template');voiceSettings.innerHTML='<div id="local-voice-options"><label for="voice-mode">本地中文配音 · 实验版</label><select id="voice-mode"><option value="auto">优先字幕同步；无字幕时音频识别（有延迟）</option><option value="subtitles">字幕同步配音（按起止时间）</option><option value="audio">实时英语音频识别（与画面有延迟）</option></select><button id="voice-start" type="button" aria-pressed="false">开启本地配音</button><button id="voice-connect" type="button">测试本地连接</button><p id="voice-status" class="hint" role="status" aria-live="polite">先运行 local-voice/start.ps1。字幕配音按每条字幕起止时间播放，提前合成；未准备好时暂用原声，视频继续播放。实时音频识别存在延迟。关闭后恢复原声。只发送字幕或音频分段到本机。</p></div>';$('import').after(voiceSettings.content);
     const videoInfo=document.createElement('p');videoInfo.id='video-info';videoInfo.className='hint';$('video').after(videoInfo);
+    const voicePace=document.createElement('template');voicePace.innerHTML='<label for="voice-speed">实时识别配音语速</label><select id="voice-speed"><option value="0.75">0.75 倍 · 慢速</option><option value="1">1 倍 · 原速</option><option value="1.25">1.25 倍 · 默认</option><option value="1.5">1.5 倍</option><option value="1.75">1.75 倍</option><option value="2">2 倍</option></select><p class="hint">仅用于没有字幕时间轴的实时识别。字幕同步模式自动匹配每条字幕时长，保留音调；倍速跟随视频播放器。</p>';$('voice-mode').after(voicePace.content);
     const positionSettings=document.createElement('template');positionSettings.innerHTML='<label for="position">字幕位置</label><select id="position"><option value="auto">自动避让</option><option value="raised">上移，避开画面字幕</option><option value="top">顶部</option></select><p class="hint">画面内嵌字幕无法移动；仍有重叠时可选择「上移」或「顶部」。</p>';$('display').after(positionSettings.content);
     const aiIntro=document.createElement('div');aiIntro.innerHTML='<p id="ai-service-hint" class="hint"></p><button id="use-ai" type="button">切换到 AI 翻译</button><button id="manage-ai" type="button">管理模型与术语 ↗</button>';$('ai-options').prepend(aiIntro);
     const entrance=document.createElement('template');entrance.innerHTML=`<style>
@@ -439,8 +443,10 @@ const twpVideoTranslator = (() => {
       #player-icon[data-enabled=true]{opacity:1;box-shadow:inset 0 -2px #ffad73}
       #player-menu{position:absolute;bottom:calc(100% + 10px);width:236px;padding:8px;background:rgba(22,27,29,.96);border:1px solid #ffffff1c;border-radius:16px;box-shadow:0 6px 24px #0005}
       #player-menu:after{content:'';position:absolute;top:100%;left:0;right:0;height:12px}
-      #player-toggle,#player-settings,#player-more{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:40px;padding:10px 12px;text-align:left}
-      #player-toggle:hover,#player-settings:hover,#player-more:hover{background:#ffffff12}
+      #player-toggle,#player-voice,#player-settings,#player-more{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:40px;padding:10px 12px;text-align:left}
+      #player-toggle:hover,#player-voice:hover,#player-settings:hover,#player-more:hover{background:#ffffff12}
+      #player-voice .voice-label{display:flex;flex-direction:column;gap:3px;min-width:0}
+      #player-voice-mode{font-size:10px;line-height:1.4;color:#c5beb6}
       #player-settings[aria-expanded=true]{background:#ffffff12}
       #quick-settings{padding:2px 10px 8px;border-top:1px solid #ffffff20;max-height:calc(100vh - 180px);overflow:auto}
       #quick-settings label{color:#d4cec7;margin:8px 0 4px}
@@ -453,8 +459,8 @@ const twpVideoTranslator = (() => {
       #use-ai,#manage-ai{font-size:12px;margin:0 4px 4px 0;padding:6px 8px}
       .switch{display:block;width:32px;height:18px;border-radius:12px;background:#736b62;position:relative;flex:none}
       .switch:before{content:'';position:absolute;left:3px;top:3px;width:12px;height:12px;background:white;border-radius:50%;transition:transform .16s}
-      #player-toggle[aria-checked=true] .switch{background:#ffad73}
-      #player-toggle[aria-checked=true] .switch:before{transform:translateX(14px);background:#29170b}
+      #player-tools [role=switch][aria-checked=true] .switch{background:#ffad73}
+      #player-tools [role=switch][aria-checked=true] .switch:before{transform:translateX(14px);background:#29170b}
       #player-state{display:none;position:absolute;bottom:calc(100% + 10px);right:0;width:236px;margin:0;padding:8px 12px;border-radius:8px;background:#201d1a;color:#f5efe8;font-size:11px;overflow-wrap:anywhere}
       #player-state[data-active=true][data-error=true],#player-state[data-active=true][data-busy=true],#player-state[data-active=true][data-gap=true]{display:block}
       #player-menu:not([hidden])~#player-state{display:none}
@@ -465,18 +471,44 @@ const twpVideoTranslator = (() => {
       @media(prefers-reduced-motion:reduce){.switch:before{transition:none}}
     </style><div id="player-tools" aria-label="页渡字幕翻译"><button id="player-icon" aria-label="页渡字幕翻译" aria-controls="player-menu" aria-expanded="false"><img alt="" src="${chrome.runtime.getURL('/icons/reading.png')}"></button><div id="player-menu" hidden><button id="player-toggle" role="switch" aria-checked="false"><span>开启字幕翻译</span><span class="switch" aria-hidden="true"></span></button><button id="player-settings" aria-controls="quick-settings" aria-expanded="false" title="调整字幕显示、语言和翻译服务">字幕设置<span aria-hidden="true">⌄</span></button><div id="quick-settings" hidden><label for="quick-display">字幕显示</label><select id="quick-display"></select><label for="quick-target">目标语言</label><select id="quick-target"></select><label for="quick-service">翻译服务</label><select id="quick-service"></select><p id="quick-hint"></p><button id="player-more" aria-controls="settings-panel" aria-expanded="false">更多设置<span aria-hidden="true">›</span></button></div></div><p id="player-state" role="status" aria-live="polite"></p></div>`;root.append(entrance.content);
     const captions=document.createElement('div');captions.id='captions';captions.hidden=true;root.append(captions);
+    const voiceQuick=document.createElement('button');voiceQuick.id='player-voice';voiceQuick.type='button';voiceQuick.setAttribute('role','switch');voiceQuick.setAttribute('aria-checked','false');voiceQuick.setAttribute('aria-labelledby','player-voice-label');voiceQuick.setAttribute('aria-describedby','player-voice-mode');voiceQuick.innerHTML='<span class="voice-label"><span id="player-voice-label">本地中文配音</span><small id="player-voice-mode" hidden></small></span><span class="switch" aria-hidden="true"></span>';$('player-toggle').after(voiceQuick);
+    const voiceStatus=(message,error=false)=>{if(!ui)return;$('voice-status').textContent=message;$('voice-status').style.color=error?'#ffaaa0':'';$('player-voice').title=message;};
+    const voiceState=(active,mode)=>{if(!ui)return;$('voice-start').textContent=active?(mode==='audio'?'关闭实时配音（与画面有延迟）':mode==='subtitles'?'关闭字幕同步配音':'关闭本地配音，恢复原声'):'开启本地中文配音';$('voice-start').setAttribute('aria-pressed',String(active));$('player-voice').setAttribute('aria-checked',String(active));$('player-voice-mode').hidden=!active;$('player-voice-mode').textContent=active?(mode==='audio'?'实时识别 · 与画面有延迟':mode==='subtitles'?'字幕同步':'连接模型…'):'';$('voice-mode').disabled=active;$('voice-speed').disabled=active&&mode==='subtitles';syncQuickSettings();};
+    const voiceStart=async()=>{
+      if(twpVideoDubbing.active){twpVideoDubbing.stop();return;}
+      const source=sources[$('source').value],mode=$('voice-mode').value,url=location.href,currentVideo=video;
+      const language=source?.language&&/^zh/i.test(source.language)?'zh':source?.language?.split('-')[0]||'auto';
+      const loadCues=async()=>{
+        if(mode==='audio')return [];
+        if(!source){if(mode==='subtitles')throw new Error('请检测字幕或导入 SRT / VTT');return [];}
+        if(source.kind==='native'){
+          const previous=source.track.mode;if(previous==='disabled')source.track.mode='hidden';
+          try{const deadline=Date.now()+5000;while(!source.track.cues?.length&&Date.now()<deadline&&twpVideoDubbing.active&&location.href===url)await new Promise(resolve=>setTimeout(resolve,100));return twpVideoSubtitles.normalize([...(source.track.cues||[])].map(cue=>({start:cue.startTime,end:cue.endTime,text:cue.text})));}
+          finally{if(previous==='disabled'&&source.track.mode==='hidden')source.track.mode=previous;}
+        }
+        try{return source.cues?.length&&source.video===currentVideo&&source.pageURL===url?source.cues:source.kind==='import'?source.cues:(await twpAIClient.call({action:source.kind==='youtube'?'youtubeSubtitlesRead':'videoSubtitlesRead',token:source.token,pageURL:url})).cues;}
+        catch(error){if(mode==='subtitles')throw error;voiceStatus('字幕不可读取，切换到英语音频识别…');return [];}
+      };
+      try{await twpVideoDubbing.start({video:currentVideo,language:mode==='audio'?'en':language,speed:Number($('voice-speed').value),loadCues:async()=>{const result=await loadCues();if(mode==='subtitles'&&!result?.length)throw new Error('当前字幕轨道没有文字，请重新检测');return result||[];},status:voiceStatus,onState:voiceState});}
+      catch(error){voiceStatus(error.message,true);}
+    };
+    $('voice-start').onclick=voiceStart;$('player-voice').onclick=voiceStart;
+    $('voice-connect').onclick=async()=>{$('voice-connect').disabled=true;try{const result=await twpAIClient.call({action:'localVoiceConnect'});voiceStatus('已连接本地模型 · '+result.model);}catch(error){voiceStatus(error.message,true);}finally{if(ui)$('voice-connect').disabled=false;}};
     const style=document.createElement('style');style.id='yedu-video-cue-style';style.textContent='video[data-yedu-captions]::cue{background:rgba(0,0,0,.82);color:white;font:20px sans-serif}'+subtitleLayers.split(',').map(selector=>'html[data-yedu-video-running] '+selector.trim()).join(',')+'{visibility:hidden!important}';document.getElementById(style.id)?.remove();document.head.append(style);
     $('service').value=initial.service||pageTranslator.getService();
     $('display').value=initial.display==='bilingual'?'bilingual':'translated';
     $('position').value=['raised','top'].includes(initial.position)?initial.position:'auto';
+    $('voice-speed').value=String([.75,1,1.25,1.5,1.75,2].includes(Number(initial.voiceSpeed))?Number(initial.voiceSpeed):1.25);
     const quickPosition=document.createElement('template');quickPosition.innerHTML='<label for="quick-position">字幕位置</label><select id="quick-position"></select>';$('quick-display').after(quickPosition.content);
+    const quickVoicePace=document.createElement('template');quickVoicePace.innerHTML='<label for="quick-voice-speed">实时识别配音语速</label><select id="quick-voice-speed"></select>';$('quick-position').after(quickVoicePace.content);
     $('target').replaceChildren(...Object.entries(twpLang.getLanguageList()).map(([code,label])=>new Option(label,code)));$('target').value=initial.targetLanguage||'zh-CN';
     $('profile').replaceChildren(...twpConfig.get('aiProfiles').map(profile=>new Option(profile.name+' · '+profile.model,profile.id)));$('profile').value=initial.profileId||twpConfig.get('aiActiveProfile');
     scope=twpAIScopeControls.create({root,fields:{expertId:'expert',glossaryId:'glossary',styleId:'style'},notice:'scope-notice',reset:'scope-reset',scopeLabel:'此视频页面',onSaved:()=>stop('AI 设置已更新，请重新开始翻译。'),onBusy:busy=>{scopeBusy=busy;if(ui)controls();}});scopeReady=scope.load();
     $('close').onclick=hidePanel;$('player-toggle').onclick=()=>void toggleFromPlayer();
     $('player-settings').onclick=()=>{const expanded=$('quick-settings').hidden;$('quick-settings').hidden=!expanded;$('player-settings').setAttribute('aria-expanded',String(expanded));syncQuickSettings();positionEntrance();};
     $('player-more').onclick=()=>void open();
-    for(const id of ['display','position','target','service'])$('quick-'+id).onchange=()=>{const original=$(id);if(original.disabled)return;original.value=$('quick-'+id).value;original.dispatchEvent(new Event('change'));syncQuickSettings();};
+    for(const id of ['display','position','target','service','voice-speed'])$('quick-'+id).onchange=()=>{const original=$(id);if(original.disabled)return;original.value=$('quick-'+id).value;original.dispatchEvent(new Event('change'));syncQuickSettings();};
+    $('voice-speed').onchange=()=>{twpVideoDubbing.setSpeed(Number($('voice-speed').value));syncQuickSettings();rememberVideo();};
     $('use-ai').onclick=()=>{$('service').value='openai';$('service').dispatchEvent(new Event('change'));};
     $('manage-ai').onclick=()=>void twpAIClient.call({action:'aiOpenSettings'}).catch(error=>status(error.message,true));
     $('player-icon').onclick=()=>setPlayerMenu($('player-menu').hidden);
@@ -540,7 +572,7 @@ const twpVideoTranslator = (() => {
     }
     if(!ui){const found=findPlayer();if(!found)return;mount({});video=found;videos=[found];hidePanel();positionEntrance();}
     else if(!enabled && !running && !video?.isConnected){video=findPlayer();sources=[];positionEntrance();}
-    if(ui&&!enabled&&!running&&!detecting&&!autoRestoring&&video?.readyState>=1&&autoAttempts<3&&Date.now()>=autoNext&&savedVideoSettings().enabled&&!chrome.extension?.inIncognitoContext){
+    if(ui&&!twpVideoDubbing.active&&!enabled&&!running&&!detecting&&!autoRestoring&&video?.readyState>=1&&autoAttempts<3&&Date.now()>=autoNext&&savedVideoSettings().enabled&&!chrome.extension?.inIncognitoContext){
       autoAttempts++;autoNext=Date.now()+4000;autoRestoring=true;const url=location.href;
       void (async()=>{await scopeReady;if(!ui||url!==location.href)return;await detect();if(!ui||url!==location.href)return;if(savedVideoSettings().enabled&&sources.length)await start();else if(!sources.length)status('自动检测尚未获取可读字幕，当前未开启翻译。'+$('status').textContent,true);})().catch(error=>{if(ui)status(error.message,true);}).finally(()=>{autoRestoring=false;if(ui)controls();});
     }

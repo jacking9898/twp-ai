@@ -98,8 +98,8 @@ gulp.task("zip", () => Promise.all([chromium, firefox].map(dir => pipeline(
   gulp.src("**/*", {cwd: path.join(build, dir), encoding: false}), zip(`${dir.replace("TWP_AI_", "Yedu_")}.zip`), gulp.dest(build)
 ))));
 gulp.task("source-zip", () => gulp.src([
-  "src/**/*", "extension/**/*", "scripts/**/*", "tests/**/*", "docs/**/*", "licenses/**/*", "assets/branding/**/*", ".github/**/*",
-  ".gitignore", "LICENSE", "PRIVACY", "*.md", "THIRD_PARTY_LICENSES.txt", "package.json", "package-lock.json", "gulpfile.js", "polyfill.js", "webpack.*.cjs", "playwright.config.js", "jsconfig.json",
+  "src/**/*", "extension/**/*", "scripts/**/*", "tests/**/*", "docs/**/*", "licenses/**/*", "assets/branding/**/*", ".github/**/*", "local-voice/**/*", "!local-voice/__pycache__/**",
+  ".gitignore", "LICENSE", "PRIVACY", "*.md", "THIRD_PARTY_LICENSES.txt", "package.json", "package-lock.json", "gulpfile.js", "polyfill.js", "webpack.*.cjs", "playwright.config.js", "jsconfig*.json",
   "!src/background/aiService.bundle.js", "!src/background/aiService.bundle.js.LICENSE.txt",
   "!src/lib/ocr", "!src/lib/ocr/**/*",
 ], {cwd: root, base: root, dot: true, encoding: false}).pipe(zip(`Yedu_${version}_Source.zip`)).pipe(gulp.dest(build)));

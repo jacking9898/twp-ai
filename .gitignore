@@ -11,6 +11,7 @@ test-results/
 *.zip
 src/background/aiService.bundle.js
 .local-data/
+local-voice/__pycache__/
 .env
 .env.*
 !.env.example

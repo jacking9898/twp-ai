@@ -68,6 +68,8 @@ test("both installation ZIPs include licenses, source notice and every registere
     for (const file of scripts) assert.ok(files.has(file.replace(/^\//, "")), `Missing registered script ${file}`);
     for (const file of files.keys()) assert.ok(!/\.local-data|importedPresets|\.(pem|key|p12|pfx)$|(^|\/)\.env|profile-/.test(file), `Unexpected distribution file: ${file}`);
     assert.ok(files.has("lib/builtinPresets.js"));
+    assert.ok(files.has("background/localVoice.js"));
+    assert.ok(files.has("contentScript/videoDubbing.js"));
     assert.ok(files.has("options/pdfTypeset.js"));
     assert.ok(files.has("options/pdfMath.js"));
     for (const asset of ["lib/videoSubtitles.js", "background/videoSubtitles.js", "lib/youtubeSubtitles.js", "background/youtubeSubtitles.js", "contentScript/videoTranslator.js"]) assert.ok(files.has(asset), `Missing video subtitle asset: ${asset}`);

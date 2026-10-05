@@ -17,6 +17,7 @@
     "build:ocr": "webpack --config webpack.ocr.cjs",
     "test:image": "node tests/image-translation-extension.cjs",
     "test:video": "node --test tests/video-subtitles.cjs tests/video-subtitles-background.cjs tests/youtube-subtitles.cjs && node tests/video-translation-extension.cjs",
+    "test:voice": "node --test tests/video-dubbing.cjs && node tests/video-dubbing-extension.cjs",
     "test:region-cache-ui": "node --test tests/region-capture-background.cjs && node tests/region-cache-ui-extension.cjs",
     "test:image-layout": "node --test tests/image-ocr-layout.cjs",
     "test:ai": "node --test tests/ai-service.cjs tests/presets.cjs tests/ai-insights.cjs tests/ai-transport.cjs",
