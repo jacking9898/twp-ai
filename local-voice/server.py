@@ -11,13 +11,15 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from engine import LocalEngine
+from voice_profiles import VoiceProfiles
 
 ROOT = Path(os.environ.get("YEDU_VOICE_HOME", Path(__file__).resolve().parents[1] / ".local-data/voice"))
 MAX_BODY = 600_000
 
 
-def create_app(engine=None):
+def create_app(engine=None, profile_root=None):
     engine = engine or LocalEngine(ROOT)
+    profiles = VoiceProfiles(profile_root or getattr(engine, "root", ROOT))
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     sessions = OrderedDict()
     cache = OrderedDict()
@@ -70,21 +72,58 @@ def create_app(engine=None):
             sessions.popitem(last=False)
         return {"token": token, "model": "small.en · OPUS-MT en-zh · GPT-SoVITS v2Pro", "target": "zh-CN"}
 
-    def dub(text, language):
-        key = (text, language)
+    def dub(text, language, profile_id=""):
+        if not isinstance(profile_id, str):
+            raise ValueError("无效人物音色")
+        reference = profiles.get(profile_id) if profile_id else None
+        key = (text, language, profile_id)
         if key in cache:
             cache.move_to_end(key)
             return cache[key]
         translated = engine.translate(text, language)
-        audio, duration = engine.synthesize(translated)
+        audio, duration = engine.synthesize(translated, reference) if reference else engine.synthesize(translated)
         if len(audio) > 4_000_000:
             raise ValueError("合成音频过长，请缩短字幕")
-        result = {"text": text, "translated": translated, "audio": base64.b64encode(audio).decode(), "duration": duration}
+        result = {"text": text, "translated": translated, "audio": base64.b64encode(audio).decode(), "duration": duration, "voiceProfileId": profile_id}
         cache[key] = result
         # Cache only in RAM; bound by bytes as well as count.
         while len(cache) > 64 or sum(len(row["audio"]) for row in cache.values()) > 32_000_000:
             cache.popitem(last=False)
         return result
+
+    def reference_audio(data):
+        try:
+            encoded = data.get("audio")
+            if not isinstance(encoded, str) or len(encoded) > 430_000:
+                raise ValueError()
+            return base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(400, "无效参考音频")
+
+    @app.post("/profiles/list")
+    async def list_profiles(request: Request):
+        await body(request)
+        return {"profiles": profiles.list()}
+
+    @app.post("/profiles/create")
+    async def create_profile(request: Request):
+        data = await body(request)
+        try:
+            return {"profile": profiles.create(data.get("name"), reference_audio(data), data.get("text"), data.get("language"))}
+        except (ValueError, wave.Error, EOFError) as error:
+            raise HTTPException(400, str(error))
+
+    @app.post("/reference-text")
+    async def reference_text(request: Request):
+        data = await body(request)
+        if inference.locked():
+            raise HTTPException(429, "本地模型正在处理，请结束配音后重试采集")
+        async with inference:
+            try:
+                text = await asyncio.to_thread(engine.recognize, reference_audio(data))
+                return {"text": text}
+            except (ValueError, RuntimeError, OSError, wave.Error, EOFError) as error:
+                raise HTTPException(400, str(error)[:250])
 
     @app.post("/dub")
     async def synthesize(request: Request):
@@ -96,7 +135,7 @@ def create_app(engine=None):
             raise HTTPException(429, "本地模型正在处理另一请求，请稍后重试")
         async with inference:
             try:
-                return await asyncio.to_thread(dub, text.strip(), language)
+                return await asyncio.to_thread(dub, text.strip(), language, data.get("voiceProfileId", ""))
             except (ValueError, RuntimeError, OSError, ImportError) as error:
                 raise HTTPException(503, "本地配音失败：" + str(error)[:250])
 
@@ -115,7 +154,7 @@ def create_app(engine=None):
         async with inference:
             def process():
                 text = engine.recognize(audio)
-                return dub(text, "en") if text else {"text": "", "translated": "", "audio": "", "duration": 0}
+                return dub(text, "en", data.get("voiceProfileId", "")) if text else {"text": "", "translated": "", "audio": "", "duration": 0}
             try:
                 return await asyncio.to_thread(process)
             except (ValueError, RuntimeError, OSError, ImportError, wave.Error, EOFError) as error:

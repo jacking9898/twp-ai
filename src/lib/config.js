@@ -24,6 +24,7 @@ const twpConfig = (function () {
     hoverTranslationSettings: { enabled: false, trigger: "Control", effect: "toggle" },
     selectionTranslationSettings: { trigger: "icon" },
     videoTranslationPreferences: {}, // Per-site choices and explicitly disabled video IDs; no subtitles or credentials.
+    videoVoiceProfiles: {}, // Speaker/series bindings to local voice IDs; no recordings or transcripts.
     aiProfiles: [], // Public metadata only. Credentials are in background IndexedDB.
     aiActiveProfile: "",
     aiTranslationSettings: { domain: "general", acronyms: "keep", glossary: [] },

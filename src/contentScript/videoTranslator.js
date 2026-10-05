@@ -15,6 +15,21 @@ const twpVideoTranslator = (() => {
   const subtitleLayers='.bili-subtitle-x-subtitle-panel, .bili-subtitle-x-subtitle-rawmeat-wrap, .bpx-player-subtitle-panel, .bilibili-player-video-subtitle, .html5-video-player .caption-window';
   let captionFrame;
   let removeMenuListeners;
+  let voiceCapture,voicePreview;
+  function clearVoicePreview(){if(voicePreview){voicePreview.audio.onended=null;voicePreview.audio.pause();URL.revokeObjectURL(voicePreview.url);voicePreview=null;}}
+  function voiceScopeKey(kind){
+    const url=new URL(location.href);
+    if(kind==='series'){
+      if(twpYouTubeSubtitles.videoId(url.href)){const playlist=url.searchParams.get('list');return playlist&&/^[\w-]{1,100}$/.test(playlist)?'youtube:series:'+playlist:twpVideoSubtitles.preferenceKey(url.href);}
+      return twpVideoSubtitles.preferenceKey(url.href)?.replace(/:p\d+$/,'')||null;
+    }
+    const links=twpYouTubeSubtitles.videoId(url.href)?document.querySelectorAll('ytd-watch-metadata #owner a[href], #upload-info #channel-name a[href]'):document.querySelectorAll('.up-info-container a[href], .up-name[href]');
+    for(const link of links){try{const owner=new URL(link.href,url.href);
+      if(['www.youtube.com','m.youtube.com'].includes(owner.hostname)&&/^\/(?:@[^/]+|channel\/[\w-]+)\/?$/.test(owner.pathname))return 'youtube:speaker:'+owner.pathname.replace(/\/$/,'');
+      if(owner.hostname==='space.bilibili.com'&&/^\/\d+\/?$/.test(owner.pathname))return 'bilibili:speaker:'+owner.pathname.replace(/\/$/,'');
+    }catch{}}
+    return null;
+  }
   let autoAttempts=0,autoNext=0,autoRestoring=false,captionWakeups=0,entranceAvailable;
   const savedVideoSettings=()=>{const saved=twpConfig.get('videoTranslationPreferences')?.[location.hostname]||{},key=twpVideoSubtitles.preferenceKey(location.href);return {...saved,enabled:!!key&&!(Array.isArray(saved.disabledVideos)&&saved.disabledVideos.includes(key))};};
   function rememberVideo(on) {
@@ -73,6 +88,7 @@ const twpVideoTranslator = (() => {
     output.mode='disabled';outputCues.clear();
   }
   function stop(message = '已停止翻译，恢复原字幕。') {
+    voiceCapture?.abort();voiceCapture=null;clearVoicePreview();
     twpVideoDubbing.stop();
     cancelPending();enabled = all = failed = false;clearInterval(clock);
     cancelAnimationFrame(captionFrame);restoreSubtitlePositions();
@@ -84,7 +100,7 @@ const twpVideoTranslator = (() => {
     if (video) video.removeAttribute('data-yedu-captions');
     if (ui) {controls();$('current').textContent = '';$('captions').hidden = true;$('player-state').dataset.gap='false';status(message);}
   }
-  function close() {discovery++;detecting=false;stop();clearInterval(routeClock);removeMenuListeners?.();removeMenuListeners=null;playerSlot?.remove();playerSlot=null;ui?.remove();ui = null;root = null;}
+  function close() {voiceCapture?.abort();voiceCapture=null;clearVoicePreview();discovery++;detecting=false;stop();clearInterval(routeClock);removeMenuListeners?.();removeMenuListeners=null;playerSlot?.remove();playerSlot=null;ui?.remove();ui = null;root = null;}
   function hidePanel() {if (!ui) return;$('settings-panel').hidden=true;$('player-more').setAttribute('aria-expanded','false');positionEntrance();}
   function showPanel() {if (!ui) return;setPlayerMenu(false);$('settings-panel').hidden=false;$('player-more').setAttribute('aria-expanded','true');}
   function syncQuickSettings() {
@@ -430,6 +446,8 @@ const twpVideoTranslator = (() => {
     const voiceSettings=document.createElement('template');voiceSettings.innerHTML='<div id="local-voice-options"><label for="voice-mode">本地中文配音 · 实验版</label><select id="voice-mode"><option value="auto">优先字幕同步；无字幕时音频识别（有延迟）</option><option value="subtitles">字幕同步配音（按起止时间）</option><option value="audio">实时英语音频识别（与画面有延迟）</option></select><button id="voice-start" type="button" aria-pressed="false">开启本地配音</button><button id="voice-connect" type="button">测试本地连接</button><p id="voice-status" class="hint" role="status" aria-live="polite">先运行 local-voice/start.ps1。字幕配音按每条字幕起止时间播放，提前合成；未准备好时暂用原声，视频继续播放。实时音频识别存在延迟。关闭后恢复原声。只发送字幕或音频分段到本机。</p></div>';$('import').after(voiceSettings.content);
     const videoInfo=document.createElement('p');videoInfo.id='video-info';videoInfo.className='hint';$('video').after(videoInfo);
     const voicePace=document.createElement('template');voicePace.innerHTML='<label for="voice-speed">实时识别配音语速</label><select id="voice-speed"><option value="0.75">0.75 倍 · 慢速</option><option value="1">1 倍 · 原速</option><option value="1.25">1.25 倍 · 默认</option><option value="1.5">1.5 倍</option><option value="1.75">1.75 倍</option><option value="2">2 倍</option></select><p class="hint">仅用于没有字幕时间轴的实时识别。字幕同步模式自动匹配每条字幕时长，保留音调；倍速跟随视频播放器。</p>';$('voice-mode').after(voicePace.content);
+    const speakerOptions=document.createElement('template');speakerOptions.innerHTML='<label for="voice-profile">人物音色</label><select id="voice-profile"><option value="">默认中文音色</option></select><button id="voice-profiles-refresh" type="button">读取本机人物音色</button><button id="voice-preview" type="button">试听中文音色</button><details id="voice-learning"><summary>采集原声，保存人物或系列音色</summary><p class="hint">选择清晰的单人原声，避免背景音乐。保存后只存于本机，供后续视频复用；无需重新训练模型。</p><label for="voice-name">人物或系列名称</label><input id="voice-name" maxlength="80" placeholder="例如：Bob 英语系列"><label for="voice-ref-language">原声语言</label><select id="voice-ref-language"><option value="en">英语</option><option value="zh">中文</option></select><button id="voice-capture" type="button">采集当前视频 7 秒原声</button><label for="voice-ref-file">或导入 3–10 秒参考音频</label><input id="voice-ref-file" type="file" accept="audio/*"><label for="voice-ref-text">原声实际说出的文字（请核对）</label><textarea id="voice-ref-text" rows="3" maxlength="500"></textarea><button id="voice-save-profile" type="button" disabled>保存人物音色到本机</button></details><label for="voice-bind-scope">音色复用范围</label><select id="voice-bind-scope"><option value="speaker">同一位讲者</option><option value="series">当前视频系列（B 站分 P / YouTube 播放列表）</option></select><button id="voice-bind" type="button">记住此人物或系列的音色</button><p id="voice-profile-status" class="hint" role="status" aria-live="polite"></p>';$('voice-start').before(speakerOptions.content);
+    const speakerStyle=document.createElement('style');speakerStyle.textContent='#voice-learning{margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:10px}#voice-learning summary{cursor:pointer;font-size:12px}#voice-name,#voice-ref-text{width:100%;font:inherit;color:var(--fg);background:var(--surface);padding:8px;border:1px solid var(--border);border-radius:8px}#voice-ref-text{resize:vertical}#voice-ref-file{width:100%;font-size:11px}#voice-learning button,#voice-bind{margin-top:8px}';root.append(speakerStyle);
     const positionSettings=document.createElement('template');positionSettings.innerHTML='<label for="position">字幕位置</label><select id="position"><option value="auto">自动避让</option><option value="raised">上移，避开画面字幕</option><option value="top">顶部</option></select><p class="hint">画面内嵌字幕无法移动；仍有重叠时可选择「上移」或「顶部」。</p>';$('display').after(positionSettings.content);
     const aiIntro=document.createElement('div');aiIntro.innerHTML='<p id="ai-service-hint" class="hint"></p><button id="use-ai" type="button">切换到 AI 翻译</button><button id="manage-ai" type="button">管理模型与术语 ↗</button>';$('ai-options').prepend(aiIntro);
     const entrance=document.createElement('template');entrance.innerHTML=`<style>
@@ -473,9 +491,62 @@ const twpVideoTranslator = (() => {
     const captions=document.createElement('div');captions.id='captions';captions.hidden=true;root.append(captions);
     const voiceQuick=document.createElement('button');voiceQuick.id='player-voice';voiceQuick.type='button';voiceQuick.setAttribute('role','switch');voiceQuick.setAttribute('aria-checked','false');voiceQuick.setAttribute('aria-labelledby','player-voice-label');voiceQuick.setAttribute('aria-describedby','player-voice-mode');voiceQuick.innerHTML='<span class="voice-label"><span id="player-voice-label">本地中文配音</span><small id="player-voice-mode" hidden></small></span><span class="switch" aria-hidden="true"></span>';$('player-toggle').after(voiceQuick);
     const voiceStatus=(message,error=false)=>{if(!ui)return;$('voice-status').textContent=message;$('voice-status').style.color=error?'#ffaaa0':'';$('player-voice').title=message;};
-    const voiceState=(active,mode)=>{if(!ui)return;$('voice-start').textContent=active?(mode==='audio'?'关闭实时配音（与画面有延迟）':mode==='subtitles'?'关闭字幕同步配音':'关闭本地配音，恢复原声'):'开启本地中文配音';$('voice-start').setAttribute('aria-pressed',String(active));$('player-voice').setAttribute('aria-checked',String(active));$('player-voice-mode').hidden=!active;$('player-voice-mode').textContent=active?(mode==='audio'?'实时识别 · 与画面有延迟':mode==='subtitles'?'字幕同步':'连接模型…'):'';$('voice-mode').disabled=active;$('voice-speed').disabled=active&&mode==='subtitles';syncQuickSettings();};
+    const voiceState=(active,mode)=>{if(!ui)return;$('voice-start').textContent=active?(mode==='audio'?'关闭实时配音（与画面有延迟）':mode==='subtitles'?'关闭字幕同步配音':'关闭本地配音，恢复原声'):'开启本地中文配音';$('voice-start').setAttribute('aria-pressed',String(active));$('player-voice').setAttribute('aria-checked',String(active));$('player-voice-mode').hidden=!active;$('player-voice-mode').textContent=active?(mode==='audio'?'实时识别 · 与画面有延迟':mode==='subtitles'?'字幕同步':'连接模型…'):'';$('voice-mode').disabled=active;$('voice-profile').disabled=active;$('voice-speed').disabled=active&&mode==='subtitles';syncQuickSettings();};
+    const voiceRoot=root;let voiceReference,profilesLoaded=false,profilesURL='',referenceBusy=false;
+    const profileStatus=message=>{if(root===voiceRoot)$('voice-profile-status').textContent=message;};
+    const savedVoice=()=>{const bindings=twpConfig.get('videoVoiceProfiles')||{};return bindings[voiceScopeKey('series')]??bindings[voiceScopeKey('speaker')]??'';};
+    const refreshVoices=async preferred=>{
+      const result=await twpAIClient.call({action:'localVoiceProfiles'});if(root!==voiceRoot)return;
+      const id=preferred??(profilesLoaded&&profilesURL===location.href?$('voice-profile').value:savedVoice());
+      $('voice-profile').replaceChildren(new Option('默认中文音色',''),...(result.profiles||[]).slice(0,50).map(row=>new Option(row.name,row.id)));
+      if(id&&![...$('voice-profile').options].some(option=>option.value===id))throw new Error('已绑定的人物音色不在这台电脑上，请重新选择');
+      $('voice-profile').value=id;profilesLoaded=true;profilesURL=location.href;
+    };
+    const bindVoice=()=>{
+      if(chrome.extension?.inIncognitoContext){profileStatus('无痕窗口不保存人物或系列绑定');return;}
+      const key=voiceScopeKey($('voice-bind-scope').value);if(!key){profileStatus('当前页未识别到讲者，请选择视频系列，或手动选择人物音色');return;}
+      const bindings={...(twpConfig.get('videoVoiceProfiles')||{})};delete bindings[key];bindings[key]=$('voice-profile').value;
+      twpConfig.set('videoVoiceProfiles',Object.fromEntries(Object.entries(bindings).slice(-100)));profileStatus('已记住此人物或系列的音色，后续视频开启配音时自动选择');
+    };
+    const loadReferenceText=async(reference,referenceURL)=>{
+      $('voice-ref-text').value='';
+      if($('voice-ref-language').value==='en'){
+        profileStatus('原声已采集，正在本机识别文字…');
+        const result=await twpAIClient.call({action:'localVoiceReferenceText',audio:reference.audio});if(root!==voiceRoot||referenceURL!==location.href)return;$('voice-ref-text').value=result.text;
+      }
+      profileStatus('参考原声 '+reference.duration.toFixed(1)+' 秒。请核对原声文字，再保存人物音色');
+    };
+    $('voice-profiles-refresh').onclick=async()=>{try{await refreshVoices();profileStatus('已读取本机人物音色');}catch(error){profileStatus(error.message);}};
+    $('voice-bind').onclick=bindVoice;
+    $('voice-capture').onclick=async()=>{
+      if(voiceCapture){voiceCapture.abort();return;}if(referenceBusy)return;
+      twpVideoDubbing.stop();clearVoicePreview();voiceReference=null;referenceBusy=true;const referenceURL=location.href,controller=new AbortController();voiceCapture=controller;$('voice-capture').textContent='取消原声采集';$('voice-save-profile').disabled=true;
+      try{const reference=await twpVideoDubbing.captureReference({video,signal:controller.signal,onProgress:seconds=>profileStatus('采集原声 · '+seconds+' / 7 秒')});if(root!==voiceRoot||referenceURL!==location.href)return;voiceReference=reference;await loadReferenceText(reference,referenceURL);}
+      catch(error){profileStatus(error.message);}
+      finally{if(voiceCapture===controller)voiceCapture=null;referenceBusy=false;if(root===voiceRoot){$('voice-capture').textContent='采集当前视频 7 秒原声';$('voice-save-profile').disabled=!voiceReference;}}
+    };
+    $('voice-ref-file').onchange=async()=>{
+      const file=$('voice-ref-file').files[0];if(!file||referenceBusy)return;voiceReference=null;referenceBusy=true;const referenceURL=location.href;$('voice-save-profile').disabled=true;
+      try{twpVideoDubbing.stop();clearVoicePreview();const reference=await twpVideoDubbing.referenceFromFile(file);if(root!==voiceRoot||referenceURL!==location.href)return;voiceReference=reference;await loadReferenceText(reference,referenceURL);}
+      catch(error){profileStatus(error.message);}
+      finally{referenceBusy=false;if(root===voiceRoot)$('voice-save-profile').disabled=!voiceReference;}
+    };
+    $('voice-save-profile').onclick=async()=>{
+      if(!voiceReference||referenceBusy)return;referenceBusy=true;const referenceURL=location.href;$('voice-save-profile').disabled=true;
+      try{const result=await twpAIClient.call({action:'localVoiceProfileCreate',name:$('voice-name').value,language:$('voice-ref-language').value,text:$('voice-ref-text').value,audio:voiceReference.audio});if(root!==voiceRoot||referenceURL!==location.href)return;await refreshVoices(result.profile.id);bindVoice();}
+      catch(error){profileStatus(error.message);}
+      finally{referenceBusy=false;if(root===voiceRoot)$('voice-save-profile').disabled=!voiceReference;}
+    };
+    $('voice-preview').onclick=async()=>{
+      if(referenceBusy)return;referenceBusy=true;const previewURL=location.href;twpVideoDubbing.stop();clearVoicePreview();$('voice-preview').disabled=true;
+      try{if(!profilesLoaded||profilesURL!==previewURL)await refreshVoices();if(root!==voiceRoot||previewURL!==location.href)return;profileStatus('正在准备中文试听…');const result=await twpAIClient.call({action:'localVoiceDub',text:'你好，这是我的中文配音。欢迎继续学习。',language:'zh',voiceProfileId:$('voice-profile').value});if(root!==voiceRoot||previewURL!==location.href)return;const bytes=Uint8Array.from(atob(result.audio),char=>char.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'})),audio=new Audio(url);voicePreview={audio,url};audio.onended=clearVoicePreview;await audio.play();profileStatus('正在试听所选人物的中文配音');}
+      catch(error){clearVoicePreview();profileStatus(error.message);}
+      finally{referenceBusy=false;if(root===voiceRoot)$('voice-preview').disabled=false;}
+    };
     const voiceStart=async()=>{
       if(twpVideoDubbing.active){twpVideoDubbing.stop();return;}
+      if(referenceBusy){voiceStatus('请先完成原声采集或音色保存');return;}
+      clearVoicePreview();
       const source=sources[$('source').value],mode=$('voice-mode').value,url=location.href,currentVideo=video;
       const language=source?.language&&/^zh/i.test(source.language)?'zh':source?.language?.split('-')[0]||'auto';
       const loadCues=async()=>{
@@ -489,7 +560,7 @@ const twpVideoTranslator = (() => {
         try{return source.cues?.length&&source.video===currentVideo&&source.pageURL===url?source.cues:source.kind==='import'?source.cues:(await twpAIClient.call({action:source.kind==='youtube'?'youtubeSubtitlesRead':'videoSubtitlesRead',token:source.token,pageURL:url})).cues;}
         catch(error){if(mode==='subtitles')throw error;voiceStatus('字幕不可读取，切换到英语音频识别…');return [];}
       };
-      try{await twpVideoDubbing.start({video:currentVideo,language:mode==='audio'?'en':language,speed:Number($('voice-speed').value),loadCues:async()=>{const result=await loadCues();if(mode==='subtitles'&&!result?.length)throw new Error('当前字幕轨道没有文字，请重新检测');return result||[];},status:voiceStatus,onState:voiceState});}
+      try{if(!profilesLoaded||profilesURL!==url)await refreshVoices();if(root!==voiceRoot||location.href!==url)return;await twpVideoDubbing.start({video:currentVideo,language:mode==='audio'?'en':language,speed:Number($('voice-speed').value),voiceProfileId:$('voice-profile').value,loadCues:async()=>{const result=await loadCues();if(mode==='subtitles'&&!result?.length)throw new Error('当前字幕轨道没有文字，请重新检测');return result||[];},status:voiceStatus,onState:voiceState});}
       catch(error){voiceStatus(error.message,true);}
     };
     $('voice-start').onclick=voiceStart;$('player-voice').onclick=voiceStart;

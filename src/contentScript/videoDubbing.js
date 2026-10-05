@@ -98,7 +98,7 @@ const twpVideoDubbing = (() => {
     if(!next)return;
     s.busy=true;const generation=s.generation;
     try{
-      const row=await call({action:'localVoiceDub',text:next.text,language:s.language});
+      const row=await call({action:'localVoiceDub',text:next.text,language:s.language,voiceProfileId:s.voiceProfileId});
       if(session!==s||generation!==s.generation)return;
       const prepared=await prepare(s,row);
       if(session!==s||generation!==s.generation){dispose(prepared);return;}
@@ -116,7 +116,7 @@ const twpVideoDubbing = (() => {
     }
     s.busy=true;const generation=s.generation,started=Date.now();
     try{
-      const row=await call({action:'localVoiceRecognize',audio:wav(samples,s.context.sampleRate)});
+      const row=await call({action:'localVoiceRecognize',audio:wav(samples,s.context.sampleRate),voiceProfileId:s.voiceProfileId});
       if(session!==s||generation!==s.generation||s.video.paused||ad(s.video))return;
       if(row.audio){const prepared=await prepare(s,row);if(session===s&&generation===s.generation&&!s.video.paused){if(s.queue.length>=2)dispose(s.queue.shift());s.queue.push(prepared);playQueued(s);s.status('实时配音 · '+row.translated+' · 本段处理 '+((Date.now()-started)/1000).toFixed(1)+' 秒');}else dispose(prepared);}
       else if(!s.heard&&Date.now()-s.started>15000)stop('未捕获到语音。受保护或跨域音频可能不可读取，请使用字幕轨道或导入 SRT。',true);
@@ -124,12 +124,12 @@ const twpVideoDubbing = (() => {
     }catch(error){if(session===s&&generation===s.generation)stop(error.message,true);}
     finally{if(session===s){s.busy=false;const next=s.pending.shift();if(next)void recognize(s,next);}}
   }
-  async function start({video,loadCues,language='en',speed=1.25,status,onState}) {
+  async function start({video,loadCues,language='en',speed=1.25,voiceProfileId='',status,onState}) {
     stop();
     if(!video)throw new Error('请先打开视频');
     const context=new AudioContext();await context.resume();
     const output=context.createGain();output.gain.value=video.volume;output.connect(context.destination);
-    const s={video,context,output,language,speed:voiceSpeed(speed),status,onState,url:location.href,originalMuted:video.muted,mutedByUs:false,listeners:[],cache:new Map(),cues:[],generation:0,started:Date.now(),chunks:[],samples:0,pending:[],queue:[],quietSamples:0,speechSamples:0};session=s;onState(true);status('连接本地模型，准备中文配音…');
+    const s={video,context,output,language,voiceProfileId,speed:voiceSpeed(speed),status,onState,url:location.href,originalMuted:video.muted,mutedByUs:false,listeners:[],cache:new Map(),cues:[],generation:0,started:Date.now(),chunks:[],samples:0,pending:[],queue:[],quietSamples:0,speechSamples:0};session=s;onState(true);status('连接本地模型，准备中文配音…');
     try{
       await call({action:'localVoiceConnect'});if(session!==s)return;
       s.cues=await loadCues();if(session!==s)return;
@@ -176,5 +176,41 @@ const twpVideoDubbing = (() => {
     }catch(error){if(session===s)stop(error.message,true);}
   }
   function setSpeed(value){if(session){session.speed=voiceSpeed(value);session.node?.setSpeed();}}
-  return {start,stop,setSpeed,get active(){return !!session;}};
+  async function captureReference({video,signal,onProgress=()=>{}}){
+    if(!video||video.paused||video.seeking||ad(video))throw new Error('请先播放一段清晰的单人原声，再开始采集');
+    if(video.playbackRate!==1)throw new Error('采集原声前，请把视频倍速调回 1 倍');
+    const capture=video.captureStream||video.mozCaptureStream;if(!capture)throw new Error('此浏览器无法采集视频音轨，请导入参考音频');
+    const context=new AudioContext();let stream,input,processor,gain,timer;const removers=[];
+    try{
+      await context.resume();stream=capture.call(video);
+      const tracks=stream.getAudioTracks();if(!tracks.length)throw new Error('未找到可读取的音轨，请导入参考音频');
+      input=context.createMediaStreamSource(new MediaStream(tracks));processor=context.createScriptProcessor(4096,1,1);gain=context.createGain();gain.gain.value=0;
+      input.connect(processor);processor.connect(gain);gain.connect(context.destination);
+      return await new Promise((resolve,reject)=>{
+        const parts=[],limit=Math.floor(context.sampleRate*7);let count=0;
+        const cancel=()=>reject(new Error('已取消原声采集'));
+        for(const name of ['pause','seeking','ratechange','emptied','ended']){video.addEventListener(name,cancel);removers.push(()=>video.removeEventListener(name,cancel));}
+        signal?.addEventListener('abort',cancel,{once:true});removers.push(()=>signal?.removeEventListener('abort',cancel));if(signal?.aborted){cancel();return;}
+        timer=setTimeout(()=>reject(new Error('无法读取原声，请导入参考音频')),15000);
+        processor.onaudioprocess=event=>{
+          if(ad(video)){cancel();return;}
+          const part=event.inputBuffer.getChannelData(0).slice(0,limit-count);parts.push(part);count+=part.length;onProgress(Math.min(7,Math.floor(count/context.sampleRate)));
+          if(count>=limit){const samples=new Float32Array(count);let offset=0;for(const row of parts){samples.set(row,offset);offset+=row.length;}resolve({audio:wav(samples,context.sampleRate),duration:7});processor.onaudioprocess=null;}
+        };
+      });
+    }finally{
+      clearTimeout(timer);for(const remove of removers)remove();if(processor){processor.onaudioprocess=null;processor.disconnect();}input?.disconnect();gain?.disconnect();for(const track of stream?.getTracks()||[])track.stop();await context.close();
+    }
+  }
+  async function referenceFromFile(file){
+    if(file.size>10000000)throw new Error('参考音频文件过大，请使用 3–10 秒片段');
+    const context=new AudioContext();
+    try{
+      const buffer=await context.decodeAudioData(await file.arrayBuffer());
+      if(buffer.duration<3||buffer.duration>10)throw new Error('参考原声需要 3–10 秒');
+      const samples=new Float32Array(buffer.length);for(let channel=0;channel<buffer.numberOfChannels;channel++){const values=buffer.getChannelData(channel);for(let i=0;i<samples.length;i++)samples[i]+=values[i]/buffer.numberOfChannels;}
+      return {audio:wav(samples,buffer.sampleRate),duration:buffer.duration};
+    }finally{await context.close();}
+  }
+  return {start,stop,setSpeed,captureReference,referenceFromFile,get active(){return !!session;}};
 })();

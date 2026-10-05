@@ -19,7 +19,7 @@
     return connecting;
   }
   chrome.runtime.onMessage.addListener((message,sender,reply)=>{
-    if(!['localVoiceConnect','localVoiceDub','localVoiceRecognize','localVoiceCancel'].includes(message.action))return;
+    if(!['localVoiceConnect','localVoiceDub','localVoiceRecognize','localVoiceCancel','localVoiceProfiles','localVoiceProfileCreate','localVoiceReferenceText'].includes(message.action))return;
     const tab=sender.tab?.id;
     // Content scripts only, supported origins including a YouTube SPA whose
     // original sender.url may still be the homepage. Never proxy arbitrary URLs.
@@ -29,12 +29,18 @@
     if(message.action==='localVoiceCancel'){for(const controller of pending.get(key)||[])controller.abort();pending.delete(key);reply({ok:true});return;}
     if(message.action==='localVoiceDub'&&(typeof message.text!=='string'||!message.text.trim()||message.text.length>500||!['en','auto','zh','zh-CN','zh-TW'].includes(message.language))){reply({ok:false,error:'第一版支持英语 → 中文，或中文字幕直接配音'});return;}
     if(message.action==='localVoiceRecognize'&&(typeof message.audio!=='string'||message.audio.length>520000)){reply({ok:false,error:'音频分段过大'});return;}
+    if(message.voiceProfileId!==undefined&&(typeof message.voiceProfileId!=='string'||(message.voiceProfileId&&!/^[a-f0-9]{32}$/.test(message.voiceProfileId)))){reply({ok:false,error:'无效人物音色'});return;}
+    if(['localVoiceProfileCreate','localVoiceReferenceText'].includes(message.action)&&(typeof message.audio!=='string'||message.audio.length>430000)){reply({ok:false,error:'参考原声需要 3–10 秒'});return;}
+    if(message.action==='localVoiceProfileCreate'&&(typeof message.name!=='string'||!message.name.trim()||message.name.length>80||typeof message.text!=='string'||!message.text.trim()||message.text.length>500||!['en','zh'].includes(message.language))){reply({ok:false,error:'请填写人物名称，并核对原声文字和语言'});return;}
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),180000);
     if(!pending.has(key))pending.set(key,new Set());pending.get(key).add(controller);
     void(async()=>{
       if(message.action==='localVoiceConnect')return connect(controller.signal);
       if(!token)await connect(controller.signal);
-      return request(message.action==='localVoiceDub'?'/dub':'/recognize-dub',message.action==='localVoiceDub'?{text:message.text,language:message.language}:{audio:message.audio},controller.signal);
+      if(message.action==='localVoiceProfiles')return request('/profiles/list',{},controller.signal);
+      if(message.action==='localVoiceProfileCreate')return request('/profiles/create',{name:message.name,audio:message.audio,text:message.text,language:message.language},controller.signal);
+      if(message.action==='localVoiceReferenceText')return request('/reference-text',{audio:message.audio},controller.signal);
+      return request(message.action==='localVoiceDub'?'/dub':'/recognize-dub',message.action==='localVoiceDub'?{text:message.text,language:message.language,voiceProfileId:message.voiceProfileId||''}:{audio:message.audio,voiceProfileId:message.voiceProfileId||''},controller.signal);
     })().then(data=>reply({ok:true,...data})).catch(error=>reply({ok:false,error:error.name==='AbortError'?'本地配音已取消或超时':error.message})).finally(()=>{clearTimeout(timer);pending.get(key)?.delete(controller);if(!pending.get(key)?.size)pending.delete(key);});
     return true;
   });

@@ -65,11 +65,11 @@ class LocalEngine:
                                           vad_filter=True, condition_on_previous_text=False)
         return " ".join(row.text.strip() for row in segments).strip()
 
-    def synthesize(self, text):
+    def synthesize(self, text, reference=None):
         # Upstream prints normalized input text during inference. Suppress it
         # so the local server does not log users' subtitle contents.
         with contextlib.redirect_stdout(self.output_sink), contextlib.redirect_stderr(self.output_sink), patch("torchaudio.load", self._load_wave):
-            return self._synthesize(text)
+            return self._synthesize(text, reference)
 
     @staticmethod
     def _load_wave(path, *args, **kwargs):
@@ -88,7 +88,7 @@ class LocalEngine:
             wav.writeframes(b"\0" * 16000 * 2)
         self.recognize(silent.getvalue())
 
-    def _synthesize(self, text):
+    def _synthesize(self, text, reference=None):
         if self.tts is None:
             # Upstream uses relative paths for auxiliary speaker/language models.
             repo = self.root / "GPT-SoVITS"
@@ -112,10 +112,15 @@ class LocalEngine:
         import numpy as np
         parts = []
         rate = 32000
+        reference = reference or {"path": str(self.root / "reference.wav"), "text": (self.root / "reference.txt").read_text(encoding="utf-8").strip(), "language": "zh"}
+        # Changing reference language with the same text must also rebuild the
+        # upstream prompt embedding rather than retaining the previous voice.
+        if self.tts.prompt_cache.get("prompt_lang") != reference["language"]:
+            self.tts.prompt_cache["prompt_text"] = None
         for rate, audio in self.tts.run({
-            "text": text, "text_lang": "zh", "ref_audio_path": str(self.root / "reference.wav"),
-            "prompt_text": (self.root / "reference.txt").read_text(encoding="utf-8").strip(),
-            "prompt_lang": "zh", "text_split_method": "cut5", "batch_size": 1,
+            "text": text, "text_lang": "zh", "ref_audio_path": reference["path"],
+            "prompt_text": reference["text"],
+            "prompt_lang": reference["language"], "text_split_method": "cut5", "batch_size": 1,
             "split_bucket": False, "return_fragment": False, "parallel_infer": False,
             "streaming_mode": False, "seed": 42, "fragment_interval": 0.12,
         }):
