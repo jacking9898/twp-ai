@@ -154,7 +154,21 @@ const twpVideoTranslator = (() => {
     const x=Math.max(8,Math.min(innerWidth-40,left));
     Object.assign(dock.style,{width:'32px',left:x+'px',top:Math.max(8,Math.min(innerHeight-40,top))+'px'});
     if(bar){let hidden=!slotRect?.width;for(let node=bar;node&&node!==player;node=node.parentElement){const style=getComputedStyle(node);hidden ||= style.visibility==='hidden'||style.display==='none'||Number(style.opacity)===0;}dock.hidden=hidden&&$('player-menu').hidden;}
-    $('player-menu').style.left=Math.max(8-x,Math.min(-196,innerWidth-x-240))+'px';
+    const menu=$('player-menu'),quick=$('quick-settings');
+    menu.style.left=Math.max(8-x,Math.min(-196,innerWidth-x-240))+'px';
+    if(!menu.hidden){
+      // Extra settings must scroll inside their section, not push the caption
+      // switch beyond the viewport. Keep the switches outside this scroll area.
+      const headerHeight=menu.offsetHeight-quick.offsetHeight;
+      const above=Math.max(0,parseFloat(dock.style.top)-18),below=Math.max(0,innerHeight-parseFloat(dock.style.top)-50);
+      const minimum=headerHeight+(quick.hidden?0:Math.min(120,quick.scrollHeight));
+      const under=above<minimum&&below>above,available=under?below:above;
+      quick.style.maxHeight=Math.max(0,available-headerHeight)+'px';
+      menu.dataset.placement=under?'below':'above';
+      menu.style.top=under?'42px':'auto';menu.style.bottom=under?'auto':'42px';
+      const bounds=menu.getBoundingClientRect();
+      if(bounds.top<8||bounds.bottom>innerHeight-8){menu.style.top=(Math.max(8,Math.min(bounds.top,innerHeight-bounds.height-8))-parseFloat(dock.style.top))+'px';menu.style.bottom='auto';}
+    }
   }
   async function toggleFromPlayer() {
     autoAttempts=3;
@@ -461,6 +475,7 @@ const twpVideoTranslator = (() => {
       #player-icon[data-enabled=true]{opacity:1;box-shadow:inset 0 -2px #ffad73}
       #player-menu{position:absolute;bottom:calc(100% + 10px);width:236px;padding:8px;background:rgba(22,27,29,.96);border:1px solid #ffffff1c;border-radius:16px;box-shadow:0 6px 24px #0005}
       #player-menu:after{content:'';position:absolute;top:100%;left:0;right:0;height:12px}
+      #player-menu[data-placement=below]:after{top:auto;bottom:100%}
       #player-toggle,#player-voice,#player-settings,#player-more{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:40px;padding:10px 12px;text-align:left}
       #player-toggle:hover,#player-voice:hover,#player-settings:hover,#player-more:hover{background:#ffffff12}
       #player-voice .voice-label{display:flex;flex-direction:column;gap:3px;min-width:0}

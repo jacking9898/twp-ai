@@ -29,6 +29,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
   context.on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
   try{
     const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker'),base=`chrome-extension://${worker.url().split('/')[2]}`;
+    await worker.evaluate(()=>{globalThis.captionVoiceRequests=[];const nativeFetch=fetch;globalThis.fetch=(input,...args)=>{if(typeof input==='string'&&input.startsWith('http://127.0.0.1:8765/'))captionVoiceRequests.push(input);return nativeFetch(input,...args);};});
     await worker.evaluate(async()=>{await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');});
     const settings=await context.newPage();await settings.goto(base+'/options/ai.html');
     await settings.locator('#profile-name').fill('Video AI');await settings.locator('#base-url').fill(origin+'/v1');await settings.locator('#model').fill('video-model');await settings.locator('#profile-form button[type=submit]').click();await expect(settings.locator('#profile-status')).toContainText('已保存');
@@ -57,7 +58,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     });
     await page.goto(nativeVideoURL);await expect.poll(()=>page.evaluate(()=>document.querySelector('video').readyState)).toBeGreaterThan(0);
     const reloadWithoutRestore=async()=>{await worker.evaluate(()=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{disabledVideos:['youtube:abcdefghijk']},'www.bilibili.com':{disabledVideos:['bilibili:BV1T84y167U9:p2']}}));await page.reload();};
-    const playerClick=async id=>{await panel.locator('#player-icon').hover();if(id==='player-settings'){if(!await panel.locator('#quick-settings').isVisible())await panel.locator('#player-settings').click();await panel.locator('#player-more').click();}else await panel.locator('#'+id).click();};
+    const playerClick=async id=>{await panel.locator('#player-icon').hover();if(id==='player-settings'){if(!await panel.locator('#quick-settings').isVisible())await panel.locator('#player-settings').click();await panel.locator('#player-more').click();}else{if(id==='player-toggle'){const bounds=await panel.locator('#player-toggle').boundingBox();expect(bounds.y).toBeGreaterThanOrEqual(8);expect(bounds.y+bounds.height).toBeLessThanOrEqual(page.viewportSize().height-8);}await panel.locator('#'+id).click();}};
     const open=async()=>{await dock.locator('#toggle').hover();await dock.locator('#settings').click();await dock.locator('#video-tool').click();await expect(panel.locator('#source option')).toHaveCount(2);};
     // The player entrance is automatic, but neither detection nor translation runs before a click.
     let navigations=0;page.on('framenavigated',frame=>{if(frame===page.mainFrame())navigations++;});
@@ -388,6 +389,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await expect(dock.locator('#video-tool')).toBeVisible();await expect(panel.locator('#player-tools')).toBeVisible();await dock.locator('#close').click();
     await expect(panel.locator('#source option')).toHaveCount(1);await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:12000});
     // Reload the real extension while its old video UI and timers remain live.
+    expect(await worker.evaluate(()=>captionVoiceRequests)).toEqual([]);
     const restarted=context.waitForEvent('serviceworker',w=>w.url().includes(base.split('/')[2]));await worker.evaluate(()=>chrome.runtime.reload()).catch(error=>{if(!/closed|destroyed|Target/i.test(error.message))throw error;});await restarted;
     await expect(panel).toHaveCount(0,{timeout:6000});await page.evaluate(()=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));document.dispatchEvent(new Event('yedu-youtube-captions-ready'));});
     expect(errors).toEqual([]);
