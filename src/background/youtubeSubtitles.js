@@ -13,7 +13,10 @@
   }
   async function handle(request,sender) {
     const id=twpYouTubeSubtitles.videoId(request.pageURL||sender.url);
-    if(sender.id!==chrome.runtime.id||!sender.tab||sender.frameId!==0||!twpYouTubeSubtitles.videoId(sender.url)||!id||new URL(sender.url).origin!==new URL(request.pageURL||sender.url).origin)throw new Error('请从 YouTube 视频页面读取字幕');
+    // SPA navigation can leave sender.url at the original home/search page.
+    // Bind its origin here; MAIN-world pageRequest verifies the current video
+    // inside this sender's document before exposing any subtitle data.
+    if(sender.id!==chrome.runtime.id||!sender.tab||sender.frameId!==0||!id||new URL(sender.url).origin!==new URL(request.pageURL||sender.url).origin)throw new Error('请从 YouTube 视频页面读取字幕');
     const pageURL=new URL(request.pageURL||sender.url).href;
     if(request.action==='youtubeSubtitlesRead'){
       const row=records.get(request.token);

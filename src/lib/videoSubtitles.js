@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 "use strict";
 const twpVideoSubtitles = (() => {
+  function isSupportedPage(value) {
+    try {
+      const url=new URL(value);
+      if(url.protocol!=='https:')return false;
+      if(['www.youtube.com','youtube.com','m.youtube.com'].includes(url.hostname)){
+        const id=url.pathname==='/watch'?url.searchParams.get('v'):url.pathname.match(/^\/(?:shorts|embed)\/([\w-]{11})(?:\/|$)/)?.[1];
+        return /^[\w-]{11}$/.test(id||'');
+      }
+      return ['www.bilibili.com','m.bilibili.com'].includes(url.hostname)&&/^\/(?:video\/(?:BV[\w]+|av\d+)|bangumi\/play\/ep\d+)(?:\/|$)/i.test(url.pathname);
+    }catch{return false;}
+  }
   function preferenceKey(value) {
     const url=new URL(value),host=url.hostname;
     if(/(^|\.)youtube\.com$/.test(host)){
@@ -98,6 +109,6 @@ const twpVideoSubtitles = (() => {
   function exportSRT(cues, translations, bilingual = true) {
     return cues.filter(cue => translations.has(cue.id)).map((cue, i) => `${i + 1}\n${timestamp(cue.start)} --> ${timestamp(cue.end)}\n${bilingual ? cue.text + '\n' : ''}${translations.get(cue.id).replace(/\n\s*\n/g, '\n')}\n`).join('\n');
   }
-  return {preferenceKey, clean, normalize, upcoming, active, exportSRT, parseFile, language, preferredSource, displayText, playerAPIURLs};
+  return {isSupportedPage, preferenceKey, clean, normalize, upcoming, active, exportSRT, parseFile, language, preferredSource, displayText, playerAPIURLs};
 })();
 if (typeof module !== 'undefined') module.exports = twpVideoSubtitles;

@@ -32,7 +32,7 @@ void (async () => {
         <div class="quick-grid">
           <button id="document-tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/></svg><span>文档翻译<small>打开文档工作台</small></span></button>
           <button id="text-tool"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h8M12 8v9"/></svg><span>文本翻译<small>打开文本工作台</small></span></button>
-          <button id="video-tool"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4z"/></svg><span>视频翻译<small>播放同步 · 双语字幕</small></span></button>
+          <button id="video-tool" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4z"/></svg><span>视频翻译<small>播放同步 · 双语字幕</small></span></button>
           <button id="hover-tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 3 6 18 3-7 7-3zM17 3l1-2M21 6l2-1"/></svg><span>鼠标悬停<small id="hover-summary">已关闭</small></span></button>
           <button id="selection-tool"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8M12 4v16M8 20h8M3 4h1m-1 5h1m-1 5h1m-1 6h1m16-16h1m-1 5h1m-1 5h1m-1 6h1"/></svg><span>划词翻译<small id="selection-summary">显示图标</small></span></button>
         </div>
@@ -89,6 +89,7 @@ void (async () => {
       value === "translating" ? "正在翻译可见内容…" : value === "translated" ? "当前可见内容已翻译" : "点击图标即可翻译；悬停展开工具。";
   }
   function controls() {
+    videoAvailability();
     $("target").replaceChildren(...Object.entries(twpLang.getLanguageList()).map(([code, name]) => new Option(name, code)));
     $("target").value = twpConfig.get("targetLanguage");
     $("engine").value = pageTranslator.getService();
@@ -160,7 +161,10 @@ void (async () => {
     .catch(error => { openPanel(); $("status").textContent = error.message; });
   $("document-tool").onclick = () => openWorkspace("document");
   $("text-tool").onclick = () => openWorkspace("text");
+  function videoAvailability() { $('video-tool').hidden = !twpVideoSubtitles.isSupportedPage(location.href); }
+  document.addEventListener('yedu-video-availability-changed', videoAvailability);
   $('video-tool').onclick = () => {
+    if(!twpVideoSubtitles.isSupportedPage(location.href))return;
     const initial={service:$('engine').value,profileId:$('profile').value};
     closePanel();twpVideoTranslator.open(initial);
   };

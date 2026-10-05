@@ -50,6 +50,26 @@ test('player request URLs match the exact video/part and fixed Bilibili endpoint
     'https://api.bilibili.com/other?aid=123&cid=20'],{aid:123,cid:20,bvid:'BV123'}),[signed,byBV]);
 });
 
+test('video entrances are limited to supported YouTube and Bilibili video pages',()=>{
+  for(const url of [
+    'https://www.youtube.com/watch?v=abcdefghijk&t=12',
+    'https://youtube.com/shorts/abcdefghijk',
+    'https://m.youtube.com/embed/abcdefghijk',
+    'https://www.bilibili.com/video/BV1dQbu68ENM/?p=2',
+    'https://m.bilibili.com/video/av123',
+    'https://www.bilibili.com/bangumi/play/ep123',
+  ])assert.equal(subtitles.isSupportedPage(url),true,url);
+  for(const url of [
+    'https://example.com/video', 'https://example.com/watch?v=abcdefghijk',
+    'https://www.youtube.com/', 'https://www.youtube.com/results?search_query=video',
+    'https://www.youtube.com/watch?v=invalid', 'https://www.youtube.com/shorts/abcdefghijkextra',
+    'https://www.bilibili.com/', 'https://live.bilibili.com/123',
+    'https://www.bilibili.com/bangumi/play/ss123', 'https://www.bilibili.com/other/video/BV123',
+    'https://www.youtube.com.example.com/watch?v=abcdefghijk',
+    'http://www.bilibili.com/video/BV123', 'invalid URL',
+  ])assert.equal(subtitles.isSupportedPage(url),false,url);
+});
+
  test('remembered enable state identifies a video, part or episode, ignoring tracking and playback time',()=>{
   const key=subtitles.preferenceKey;
   assert.equal(key('https://www.youtube.com/watch?v=abcdefghijk&t=12'),key('https://www.youtube.com/watch?v=abcdefghijk&list=playlist'));

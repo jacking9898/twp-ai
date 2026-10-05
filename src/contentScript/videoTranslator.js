@@ -15,7 +15,7 @@ const twpVideoTranslator = (() => {
   const subtitleLayers='.bili-subtitle-x-subtitle-panel, .bili-subtitle-x-subtitle-rawmeat-wrap, .bpx-player-subtitle-panel, .bilibili-player-video-subtitle, .html5-video-player .caption-window';
   let captionFrame;
   let removeMenuListeners;
-  let autoAttempts=0,autoNext=0,autoRestoring=false,captionWakeups=0;
+  let autoAttempts=0,autoNext=0,autoRestoring=false,captionWakeups=0,entranceAvailable;
   const savedVideoSettings=()=>{const saved=twpConfig.get('videoTranslationPreferences')?.[location.hostname]||{},key=twpVideoSubtitles.preferenceKey(location.href);return {...saved,enabled:!!key&&!(Array.isArray(saved.disabledVideos)&&saved.disabledVideos.includes(key))};};
   function rememberVideo(on) {
     if(chrome.extension?.inIncognitoContext)return;
@@ -23,7 +23,7 @@ const twpVideoTranslator = (() => {
     const key=twpVideoSubtitles.preferenceKey(location.href),saved=savedVideoSettings();
     let disabledVideos=Array.isArray(saved.disabledVideos)?saved.disabledVideos:[];
     if(typeof on==='boolean'&&key){disabledVideos=disabledVideos.filter(value=>value!==key);if(!on)disabledVideos.push(key);}
-    twpConfig.set('videoTranslationPreferences',Object.fromEntries([...entries,[location.hostname,{disabledVideos:disabledVideos.slice(-100),service:$('service').value,profileId:$('profile').value,targetLanguage:$('target').value,display:$('display').value}]]));
+    twpConfig.set('videoTranslationPreferences',Object.fromEntries([...entries,[location.hostname,{disabledVideos:disabledVideos.slice(-100),service:$('service').value,profileId:$('profile').value,targetLanguage:$('target').value,display:$('display').value,position:$('position').value}]]));
   }
   const $ = id => root.getElementById(id), escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const timeLabel = seconds => new Date(Math.max(0,seconds)*1000).toISOString().slice(11,23);
@@ -87,7 +87,7 @@ const twpVideoTranslator = (() => {
   function hidePanel() {if (!ui) return;$('settings-panel').hidden=true;$('player-more').setAttribute('aria-expanded','false');positionEntrance();}
   function showPanel() {if (!ui) return;setPlayerMenu(false);$('settings-panel').hidden=false;$('player-more').setAttribute('aria-expanded','true');}
   function syncQuickSettings() {
-    for(const id of ['display','target','service']){
+    for(const id of ['display','position','target','service']){
       const original=$(id),quick=$('quick-'+id);
       if(quick.options.length!==original.options.length)quick.replaceChildren(...[...original.options].map(option=>new Option(option.text,option.value)));
       quick.value=original.value;quick.disabled=original.disabled;
@@ -97,6 +97,7 @@ const twpVideoTranslator = (() => {
   function setPlayerMenu(open) {if(!ui)return;$('player-menu').hidden=!open;$('player-icon').setAttribute('aria-expanded',String(open));positionEntrance();}
   function positionEntrance() {
     if (!ui) return;
+    if(!twpVideoSubtitles.isSupportedPage(location.href)){$('player-tools').hidden=true;return;}
     let rect=video?.isConnected ? video.getBoundingClientRect() : null;const dock=$('player-tools');
     const youtubePlayer=video?.closest('.html5-video-player');
     if(rect&&youtubePlayer)rect=youtubePlayer.getBoundingClientRect();
@@ -177,6 +178,9 @@ const twpVideoTranslator = (() => {
     const overlay=$('captions'),rect=video.getBoundingClientRect();
     if(overlay.hidden){restoreSubtitlePositions();return;}
     const player=video.closest(playerSelector);
+    const position=$('position').value,fontSize=Math.max(18,Math.min(42,rect.width*.028));
+    const candidates=[...(player?.querySelectorAll(subtitlePositions)||[])];
+    const originals=candidates.filter(element=>!candidates.some(parent=>parent!==element&&parent.contains(element))&&element.textContent.trim()&&visibleInPlayer(element,player));
     let bottom=Math.min(innerHeight-12,rect.bottom-12);
     // Both progress and button rows occupy space while visible. Inspect actual
     // geometry/ancestor opacity, including the site's hover/fade transitions.
@@ -185,12 +189,20 @@ const twpVideoTranslator = (() => {
       if(box.top>rect.top+rect.height/2&&box.top<rect.bottom&&visibleInPlayer(control,player))bottom=Math.min(bottom,box.top-8);
     }
     if(!player&&video.controls)bottom=Math.min(bottom,rect.bottom-60);
+    // Burned-in captions are video pixels, so no DOM subtitle can be lifted.
+    // Reserve a bottom band on Bilibili instead of treating an empty/disabled
+    // platform subtitle layer as evidence that the picture has no captions.
+    const reserve=position==='raised'||(position==='auto'&&/(^|\.)bilibili\.com$/.test(location.hostname)&&!originals.length);
+    if(reserve)bottom=Math.min(bottom,rect.bottom-Math.min(rect.height*.4,Math.max(72,fontSize*3.5,rect.height*.22)));
     const left=Math.max(0,rect.left),width=Math.max(0,Math.min(rect.right,innerWidth)-left);
-    Object.assign(overlay.style,{left:left+'px',top:bottom+'px',width:width+'px',fontSize:Math.max(18,Math.min(42,rect.width*.028))+'px'});
+    Object.assign(overlay.style,{left:left+'px',top:bottom+'px',width:width+'px',fontSize:fontSize+'px'});
+    if(position==='top'){
+      restoreSubtitlePositions();
+      overlay.style.top=Math.max(12,rect.top+Math.min(24,rect.height*.06))+overlay.getBoundingClientRect().height+'px';
+      return;
+    }
     if($('display').value!=='translated'){restoreSubtitlePositions();return;}
     const ceiling=overlay.getBoundingClientRect().top-6;
-    const candidates=[...(player?.querySelectorAll(subtitlePositions)||[])];
-    const originals=candidates.filter(element=>!candidates.some(parent=>parent!==element&&parent.contains(element)));
     for(const element of originals){
       if(!element.textContent.trim()||!visibleInPlayer(element,player))continue;
       let saved=liftedSubtitles.get(element);
@@ -251,7 +263,7 @@ const twpVideoTranslator = (() => {
     for(const [cue,line] of changedCueLines.splice(0))cue.line=line;
     for(const [track,previous] of changedModes)if(previous==='showing')track.mode=bilingual?'hidden':'showing';
     if(!bilingual)for(const [track,previous] of changedModes)if(previous==='showing')for(const cue of track.cues||[]){if(cue.line==='auto'){changedCueLines.push([cue,cue.line]);cue.line=-3;}}
-    for(const cue of outputCues.values())cue.line=bilingual?-3:-1;
+    for(const cue of outputCues.values())cue.line=$('position').value==='top'?1:($('position').value==='raised'||($('position').value==='auto'&&/(^|\.)bilibili\.com$/.test(location.hostname)))?-5:bilingual?-3:-1;
   }
   function translate(texts, config) {
     if (sameLanguage(config)) return Promise.resolve(texts);
@@ -414,6 +426,7 @@ const twpVideoTranslator = (() => {
     root.querySelector('section').id='settings-panel';
     const sourceInfo=document.createElement('p');sourceInfo.id='source-info';sourceInfo.className='hint';$('source').after(sourceInfo);
     const videoInfo=document.createElement('p');videoInfo.id='video-info';videoInfo.className='hint';$('video').after(videoInfo);
+    const positionSettings=document.createElement('template');positionSettings.innerHTML='<label for="position">字幕位置</label><select id="position"><option value="auto">自动避让</option><option value="raised">上移，避开画面字幕</option><option value="top">顶部</option></select><p class="hint">画面内嵌字幕无法移动；仍有重叠时可选择「上移」或「顶部」。</p>';$('display').after(positionSettings.content);
     const aiIntro=document.createElement('div');aiIntro.innerHTML='<p id="ai-service-hint" class="hint"></p><button id="use-ai" type="button">切换到 AI 翻译</button><button id="manage-ai" type="button">管理模型与术语 ↗</button>';$('ai-options').prepend(aiIntro);
     const entrance=document.createElement('template');entrance.innerHTML=`<style>
       #settings-panel{position:relative;z-index:3}
@@ -455,13 +468,15 @@ const twpVideoTranslator = (() => {
     const style=document.createElement('style');style.id='yedu-video-cue-style';style.textContent='video[data-yedu-captions]::cue{background:rgba(0,0,0,.82);color:white;font:20px sans-serif}'+subtitleLayers.split(',').map(selector=>'html[data-yedu-video-running] '+selector.trim()).join(',')+'{visibility:hidden!important}';document.getElementById(style.id)?.remove();document.head.append(style);
     $('service').value=initial.service||pageTranslator.getService();
     $('display').value=initial.display==='bilingual'?'bilingual':'translated';
+    $('position').value=['raised','top'].includes(initial.position)?initial.position:'auto';
+    const quickPosition=document.createElement('template');quickPosition.innerHTML='<label for="quick-position">字幕位置</label><select id="quick-position"></select>';$('quick-display').after(quickPosition.content);
     $('target').replaceChildren(...Object.entries(twpLang.getLanguageList()).map(([code,label])=>new Option(label,code)));$('target').value=initial.targetLanguage||'zh-CN';
     $('profile').replaceChildren(...twpConfig.get('aiProfiles').map(profile=>new Option(profile.name+' · '+profile.model,profile.id)));$('profile').value=initial.profileId||twpConfig.get('aiActiveProfile');
     scope=twpAIScopeControls.create({root,fields:{expertId:'expert',glossaryId:'glossary',styleId:'style'},notice:'scope-notice',reset:'scope-reset',scopeLabel:'此视频页面',onSaved:()=>stop('AI 设置已更新，请重新开始翻译。'),onBusy:busy=>{scopeBusy=busy;if(ui)controls();}});scopeReady=scope.load();
     $('close').onclick=hidePanel;$('player-toggle').onclick=()=>void toggleFromPlayer();
     $('player-settings').onclick=()=>{const expanded=$('quick-settings').hidden;$('quick-settings').hidden=!expanded;$('player-settings').setAttribute('aria-expanded',String(expanded));syncQuickSettings();positionEntrance();};
     $('player-more').onclick=()=>void open();
-    for(const id of ['display','target','service'])$('quick-'+id).onchange=()=>{const original=$(id);if(original.disabled)return;original.value=$('quick-'+id).value;original.dispatchEvent(new Event('change'));syncQuickSettings();};
+    for(const id of ['display','position','target','service'])$('quick-'+id).onchange=()=>{const original=$(id);if(original.disabled)return;original.value=$('quick-'+id).value;original.dispatchEvent(new Event('change'));syncQuickSettings();};
     $('use-ai').onclick=()=>{$('service').value='openai';$('service').dispatchEvent(new Event('change'));};
     $('manage-ai').onclick=()=>void twpAIClient.call({action:'aiOpenSettings'}).catch(error=>status(error.message,true));
     $('player-icon').onclick=()=>setPlayerMenu($('player-menu').hidden);
@@ -485,6 +500,7 @@ const twpVideoTranslator = (() => {
       if(resume)void start();
     };
     $('display').onchange=()=>{syncNativeCaptions();for(const cue of cues){const target=outputCues.get(cue.id);if(target)target.text=caption(cue);}render();syncQuickSettings();rememberVideo();};
+    $('position').onchange=()=>{restoreSubtitlePositions();syncNativeCaptions();render();syncQuickSettings();rememberVideo();};
     $('retry').onclick=()=>{failed=false;controls();void pump();};$('all').onclick=()=>{all=true;controls();void pump();};
     $('import').onchange=async()=>{
       const file=$('import').files[0];if(!file)return;stop();const token=++discovery;
@@ -496,6 +512,7 @@ const twpVideoTranslator = (() => {
     pageURL=location.href;controls();routeClock=setInterval(()=>{if(!ui)return;positionEntrance();if(location.href!==pageURL){autoAttempts=0;captionWakeups=0;autoNext=Date.now()+1500;detecting=false;stop('已切换视频，请重新检测字幕。');discovery++;pageURL=location.href;sources=[];translated=new Map();$('source').replaceChildren();$('source-info').textContent='';$('video-info').textContent='';controls();scopeReady=scope.load();}},500);
   }
   async function open(initial={}) {
+    if(!twpVideoSubtitles.isSupportedPage(location.href))return;
     if(!ui)mount(initial);
     else if(!enabled && !running){
       refreshProfiles();
@@ -515,6 +532,12 @@ const twpVideoTranslator = (() => {
   function discoverEntrance() {
     if(suspended)return;
     try {if(!chrome.runtime.id){suspended=true;clearInterval(entranceClock);close();return;}}catch{suspended=true;clearInterval(entranceClock);close();return;}
+    const compatible=twpVideoSubtitles.isSupportedPage(location.href);
+    if(compatible!==entranceAvailable){entranceAvailable=compatible;document.dispatchEvent(new Event('yedu-video-availability-changed'));}
+    if(!compatible){
+      if(ui){close();video=null;videos=[];sources=[];cues=[];translated=new Map();chosenSourceKey=undefined;autoAttempts=0;captionWakeups=0;autoNext=0;}
+      return;
+    }
     if(!ui){const found=findPlayer();if(!found)return;mount({});video=found;videos=[found];hidePanel();positionEntrance();}
     else if(!enabled && !running && !video?.isConnected){video=findPlayer();sources=[];positionEntrance();}
     if(ui&&!enabled&&!running&&!detecting&&!autoRestoring&&video?.readyState>=1&&autoAttempts<3&&Date.now()>=autoNext&&savedVideoSettings().enabled&&!chrome.extension?.inIncognitoContext){

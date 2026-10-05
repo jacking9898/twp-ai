@@ -34,6 +34,20 @@ test('YouTube bridge is bound to tab, document, video and issued track token',as
   f.removed(1);assert.equal((await f.send({action:'youtubeSubtitlesRead',token:list.tracks[0].token})).ok,false);
 });
 
+test('YouTube home/search documents can read the current video after same-origin SPA navigation',async()=>{
+  for(const initialURL of ['https://www.youtube.com/','https://www.youtube.com/results?search_query=PCA','https://www.youtube.com/watch?v=lmnopqrstuv']){
+    const f=fixture(),sender={...f.sender,url:initialURL},pageURL='https://www.youtube.com/watch?v='+id;
+    const list=await f.send({action:'youtubeSubtitlesList',pageURL},sender);
+    assert.equal(list.ok,true,list.error);assert.equal(list.tracks.length,2);
+    const read=await f.send({action:'youtubeSubtitlesRead',pageURL,token:list.tracks[0].token},sender);
+    assert.equal(read.ok,true,read.error);assert.equal(read.cues[0].text,'Hello');
+    assert.deepEqual(Array.from(f.injected[0].target.documentIds),['current-document']);
+    assert.equal((await f.send({action:'youtubeSubtitlesList',pageURL},{...sender,url:'https://evil.example/'})).ok,false);
+    assert.equal((await f.send({action:'youtubeSubtitlesList',pageURL},{...sender,frameId:1})).ok,false);
+    assert.equal((await f.send({action:'youtubeSubtitlesList',pageURL:'https://www.youtube.com/watch?v=other______'},sender)).ok,false);
+  }
+});
+
 test('passive caption capture preserves fetch and excludes other videos, translations and expired data',async()=>{
   const events={},location={href:'https://www.youtube.com/watch?v='+id};
   class XHR {open(){} send(){}}
