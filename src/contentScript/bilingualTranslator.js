@@ -81,6 +81,25 @@ const bilingualTranslator = (() => {
       record.nodes.every((node, i) => node === piece.nodes[i] && record.source[i] === piece.source[i]);
   }
 
+  function textForTranslation(piece) {
+    // HTML source newlines and indentation are usually collapsed by CSS. Keep
+    // the raw source for DOM change checks, but send the visible whitespace to
+    // providers so it cannot return as artificial line breaks in the result.
+    const runs = [];
+    piece.nodes.forEach((node, i) => {
+      const whitespace = getComputedStyle(node.parentElement).whiteSpace;
+      const previous = runs[runs.length - 1];
+      if (previous && previous.whitespace === whitespace) previous.text += piece.source[i];
+      else runs.push({ whitespace, text: piece.source[i] });
+    });
+    return runs.map(({ whitespace, text }) => {
+      if (["pre", "pre-wrap", "break-spaces"].includes(whitespace)) return text;
+      if (whitespace === "pre-line") return text.replace(/[\t\f\r ]+/g, " ").replace(/ *\n */g, "\n");
+      // Do not collapse nonbreaking spaces used intentionally by the author.
+      return text.replace(/[\t\n\f\r ]+/g, " ");
+    }).join("").trim();
+  }
+
   function sourceRect(record) {
     const range = document.createRange();
     range.setStartBefore(record.nodes[0]);
@@ -96,7 +115,7 @@ const bilingualTranslator = (() => {
   }
 
   function render(session, record, text) {
-    if (!text.trim() || text.trim() === record.source.join("").trim()) return;
+    if (!text.trim() || text.trim() === textForTranslation(record)) return;
     const tab = record.container.closest('[role="tab"]');
     const element = document.createElement("span");
     element.setAttribute("data-twp-bilingual", "translation");
@@ -153,7 +172,7 @@ const bilingualTranslator = (() => {
     reportState(session);
     try {
       const results = await Promise.race([
-        session.translate(batch.map(record => record.source)),
+        session.translate(batch.map(record => [textForTranslation(record)])),
         new Promise((_, reject) => {
           session.requestTimer = setTimeout(() => reject(new Error("Translation request timed out")), session.requestTimeout);
         }),
@@ -288,5 +307,6 @@ const bilingualTranslator = (() => {
     render({ targetLanguage, elements: new Set() }, record, text);
     return record.element;
   }
-  return { start, stop, paragraphAt, renderParagraph, sourceText:()=>collect().map(p=>p.source.join("")).join("\n\n") };
+  return { start, stop, paragraphAt, renderParagraph, textForTranslation,
+    sourceText:()=>collect().map(textForTranslation).join("\n\n") };
 })();

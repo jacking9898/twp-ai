@@ -235,6 +235,65 @@ test("custom dictionary terms work without changing original link text", async (
   expect(await page.evaluate(() => testRequests[0].sourceArray2d.every(paragraph => paragraph.length === 1))).toBe(true);
 });
 
+test("HTML source wrapping does not split or indent translated list sentences", async ({ page }) => {
+  const objectives = `<aside style="background:#dff2f1;padding:24px"><b>Learning objectives</b><ul>
+    <li id="objective">Explain the motivation for building neural networks, and the use
+        cases they address.</li>
+    <li id="architecture">Define the components of a deep neural
+        network architecture:
+      <ul><li id="node"><strong><a href="#nodes">Nodes</a></strong></li></ul>
+    </li>
+  </ul></aside>`;
+  await setup(page, fixture.replace("<main>", `<main>${objectives}`));
+  const original = await page.locator("#objective").textContent();
+  await translate(page);
+  await expect(page.locator("#objective > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#architecture > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#node [data-twp-bilingual]")).toHaveCount(1);
+  const sentences = await page.evaluate(() => testRequests.flatMap(r => r.sourceArray2d.flat()));
+  expect(sentences).toContain("Explain the motivation for building neural networks, and the use cases they address.");
+  expect(sentences).toContain("Define the components of a deep neural network architecture:");
+  const translation = page.locator("#objective > [data-twp-bilingual]");
+  expect(await translation.textContent()).not.toMatch(/\n| {2}/);
+  expect(await page.locator("#architecture").evaluate(element =>
+    element.querySelector(":scope > [data-twp-bilingual]").nextElementSibling.tagName)).toBe("UL");
+  await page.setViewportSize({width:420,height:850});
+  const lines = await translation.evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const leftByLine = new Map();
+    for (const rect of range.getClientRects()) {
+      leftByLine.set(rect.top, Math.min(leftByLine.get(rect.top) ?? Infinity, rect.left));
+    }
+    return [...leftByLine.values()];
+  });
+  expect(lines.length).toBeGreaterThan(1);
+  for (const left of lines) expect(left).toBeCloseTo(lines[0], 0);
+  await page.screenshot({path:"build/bilingual-list-layout.png", fullPage:true});
+  await page.evaluate(() => pageTranslator.restorePage());
+  await expect(page.locator("#objective")).toHaveText(original, {useInnerText:false});
+});
+
+test("translation input respects CSS whitespace and explicit line breaks", async ({ page }) => {
+  const whitespace = `<p id="collapsed">First\n    <strong>bold\t text</strong>\n    last.&nbsp;End.</p>
+    <div id="preserved" style="white-space:pre-wrap">First line\n    Indented second line</div>
+    <div id="line-breaks" style="white-space:pre-line">First   line\nSecond   line</div>
+    <p id="explicit">Before break<br>After break</p>`;
+  await setup(page, fixture.replace("<main>", `<main>${whitespace}`));
+  await translate(page);
+  await expect(page.locator("#preserved [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#explicit [data-twp-bilingual]")).toHaveCount(2);
+  const sentences = await page.evaluate(() => testRequests.flatMap(r => r.sourceArray2d.flat()));
+  expect(sentences).toContain("First bold text last.\u00a0End.");
+  expect(sentences).toContain("First line\n    Indented second line");
+  expect(sentences).toContain("First line\nSecond line");
+  expect(await page.locator("#preserved [data-twp-bilingual]").textContent()).toContain("\n    ");
+  expect(await page.evaluate(() => {
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("collapsed"), 0, 0);
+    return bilingualTranslator.textForTranslation(piece);
+  })).toBe("First bold text last.\u00a0End.");
+});
+
 test("translation stays pending until the provider actually replies", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => { window.translationDelay = 800; });

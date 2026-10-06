@@ -55,9 +55,14 @@ module.exports = async ({ context, worker, id, page, calls, configure }) => {
   await page.screenshot({ path: path.resolve("build/control-hover.png") });
   await control("#close").click();
   await clearSelection();
+  // Source-code indentation must not become a line break in hover translations.
+  await page.locator("#first").evaluate(element => {
+    element.textContent = "Random forests combine multiple\n    decision trees.";
+  });
   await page.locator("#first").hover();
   await page.keyboard.press("Control");
   await expect(page.locator("#first [data-twp-interactive=translated]")).toHaveText("译文：Random forests combine multiple decision trees.");
+  expect(await page.locator("#first [data-twp-interactive=translated]").textContent()).not.toMatch(/\n| {2}/);
   expect(calls.at(-1).body.model).toBe("test-model");
   await page.keyboard.press("Control");
   await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);

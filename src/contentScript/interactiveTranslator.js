@@ -154,7 +154,7 @@ const twpInteractiveTranslator = (() => {
       record.element = bilingualTranslator.renderParagraph(piece, "正在翻译…", twpConfig.get("targetLanguage"));
       record.element?.setAttribute("data-twp-interactive", "loading");
       try {
-        const text = await translate(piece.source.join(""), record.group);
+        const text = await translate(bilingualTranslator.textForTranslation(piece), record.group);
         if (version !== record.version || !valid(record)) return;
         record.element?.remove();
         record.element = bilingualTranslator.renderParagraph(piece, text, twpConfig.get("targetLanguage"));
