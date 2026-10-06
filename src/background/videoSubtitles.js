@@ -87,6 +87,7 @@
     const video = url.pathname.match(/^\/video\/(BV[\w]+|av\d+)/i), episode = url.pathname.match(/^\/bangumi\/play\/ep(\d+)/);
     if (video) {
       const data = await api('/x/web-interface/view', video[1].toLowerCase().startsWith('av') ? {aid:video[1].slice(2)} : {bvid:video[1]});
+      if(video[1].toLowerCase().startsWith('av')?String(data.aid)!==video[1].slice(2):data.bvid!==video[1])throw new Error('视频元数据与当前视频不匹配，请重新检测');
       const page = Number(url.searchParams.get('p') || 1), entry = data.pages?.find(row => row.page === page);
       if (!entry) throw new Error('找不到当前分 P，请刷新视频页面后重试');
       ({aid, title, bvid} = data);cid = entry.cid;title += entry.part ? ' · ' + entry.part : '';
@@ -97,7 +98,7 @@
       ({aid, cid} = entry);title = data.title + ' · ' + (entry.long_title || entry.title || '');
     } else throw new Error('请打开具体的 B 站视频或剧集页面');
     const player = await api('/x/player/v2', {aid, cid});
-    if((player.aid!=null&&String(player.aid)!==String(aid))||(player.cid!=null&&String(player.cid)!==String(cid)))throw new Error('字幕接口返回了其他视频的轨道，请重新检测');
+    if((player.aid!=null&&String(player.aid)!==String(aid))||(player.cid!=null&&String(player.cid)!==String(cid))||(bvid&&player.bvid!=null&&player.bvid!==bvid))throw new Error('字幕接口返回了其他视频的轨道，请重新检测');
     const videoKey=`bilibili:${aid}:${cid}`, name=String(title).slice(0,200), tracks=issueTracks((player.subtitle?.subtitles||[]).slice(0,50),{tabId,pageURL:url.href,videoKey});
     const retained=(await savedTimelines(tabId,videoKey)).filter(track=>!tracks.some(current=>current.trackId===track.trackId));
     tracks.push(...retained);

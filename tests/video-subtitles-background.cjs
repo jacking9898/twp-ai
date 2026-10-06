@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 const {test}=require('node:test'), assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),{randomUUID}=require('node:crypto');
-function fixture({login=false,bad=false,expired=false,session={}}={}){
+function fixture({login=false,bad=false,expired=false,session={},wrongVideo=false,wrongPlayer=false}={}){
   let listener,removed,observe;const requests=[];
   const sandbox={URL,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:{randomUUID},Date:expired?class extends Date{static now(){return fixture.time||0;}}:Date,twpVideoSubtitles:require('../src/lib/videoSubtitles.js'),chrome:{runtime:{id:'test',onMessage:{addListener(fn){listener=fn;}}},tabs:{onRemoved:{addListener(fn){removed=fn;}}}},fetch:async(url,options)=>{
     requests.push({url,options});const path=new URL(url).pathname;
-    let data;if(path==='/x/web-interface/view')data={code:0,data:{aid:123,title:'course',pages:[{page:1,cid:10},{page:2,cid:20}]}};
+    let data;if(path==='/x/web-interface/view')data={code:0,data:{bvid:wrongVideo?'BVother':new URL(url).searchParams.get('bvid')||'BV123456',aid:123,title:'course',pages:[{page:1,cid:10},{page:2,cid:20}]}};
     else if(path==='/pgc/view/web/season')data={code:0,result:{title:'series',episodes:[{id:4,aid:124,cid:40,title:'4'}]}};
-    else if(path==='/x/player/v2')data={code:0,data:{need_login_subtitle:login,subtitle:{subtitles:login?[]:[{lan:'en',lan_doc:'English',subtitle_url:bad?'https://evil.example/bfs/subtitle/test.json':'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/test.json'}]}}};
+    else if(path==='/x/player/v2')data={code:0,data:{...(wrongPlayer?{bvid:'BVother'}:{}),need_login_subtitle:login,subtitle:{subtitles:login?[]:[{lan:'en',lan_doc:'English',subtitle_url:bad?'https://evil.example/bfs/subtitle/test.json':'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/test.json'}]}}};
     else data={body:[{from:1,to:2,content:'Hello'}]};return {ok:true,text:async()=>JSON.stringify(data)};
   }};
   sandbox.chrome.storage={session:{get:async key=>({[key]:session[key]}),set:async values=>Object.assign(session,values),remove:async key=>{delete session[key];}}};
@@ -21,6 +21,14 @@ test('Bilibili selects the current part and reads only the issued safe subtitle 
   assert.equal((await f.send({action:'videoSubtitlesRead',token:list.tracks[0].token},{...f.sender,tab:{id:2}})).ok,false);
   assert.equal((await f.send({action:'videoSubtitlesRead',token:list.tracks[0].token,pageURL:'https://www.bilibili.com/video/BV123456?p=1'})).ok,false);
   f.removed(1);assert.equal((await f.send({action:'videoSubtitlesRead',token:list.tracks[0].token})).ok,false);
+});
+
+test('Bilibili rejects metadata and player lists belonging to another BV video',async()=>{
+  for(const options of [{wrongVideo:true},{wrongPlayer:true}]){
+    const f=fixture(options),result=await f.send({action:'videoSubtitlesList'});
+    assert.equal(result.ok,false);assert.match(result.error,/其他视频|不匹配/);
+    assert.equal(result.tracks,undefined);
+  }
 });
 test('login restriction, episodes, trust checks and hostile CDN locations are explicit',async()=>{
   const login=await fixture({login:true}).send({action:'videoSubtitlesList'});assert.match(login.notice,/登录/);assert.equal(login.tracks.length,0);

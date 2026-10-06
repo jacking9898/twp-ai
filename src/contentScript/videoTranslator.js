@@ -79,6 +79,14 @@ const twpVideoTranslator = (() => {
     $('player-state').dataset.busy=String((quickStarting || running) && !translated.size);
   }
   function cancelPending() {epoch++;running = false;twpAIClient.cancel('video');legacyCancel?.();legacyCancel = null;}
+  function currentSource(source) {
+    return source && source.video===video && video?.isConnected && source.pageURL===location.href && source.mediaURL===video.currentSrc;
+  }
+  function invalidateSources(message) {
+    discovery++;detecting=false;stop(message);sources=[];cues=[];translated=new Map();chosenSourceKey=undefined;
+    autoAttempts=0;autoNext=Date.now()+1500;
+    $('source').replaceChildren();$('source-info').textContent='';$('video-info').textContent='';controls();
+  }
   function clearOutput() {
     if(!output)return;
     // Disabled TextTracks expose cues as null in Chromium. Make the list
@@ -266,6 +274,7 @@ const twpVideoTranslator = (() => {
       document.documentElement.toggleAttribute('data-yedu-video-running',!ad&&$('display').value==='bilingual');
       if(ad){$('captions').hidden=true;output.mode='hidden';restoreSubtitlePositions();return;}
     }
+    if(!currentSource(selected)){invalidateSources('播放器已切换视频，请重新检测字幕。');return;}
     const active = twpVideoSubtitles.active(cues, video.currentTime);
     const next=cues.find(cue=>cue.start>video.currentTime);
     const passthrough=sameLanguage(options());
@@ -314,6 +323,7 @@ const twpVideoTranslator = (() => {
   async function pump() {
     if(selected?.kind==='youtube'&&video?.closest('.html5-video-player')?.classList.contains('ad-showing'))return;
     if (!enabled || running || failed || !video?.isConnected) return;
+    if(!currentSource(selected)){invalidateSources('播放器已切换视频，请重新检测字幕。');return;}
     const token = epoch, candidates = all ? cues.filter(cue => !translated.has(cue.id)) : twpVideoSubtitles.upcoming(cues, video.currentTime, translated);
     const batch = [];let size = 0;
     for (const cue of candidates) {if (batch.length >= 8 || size + cue.text.length > 3000 && batch.length) break;batch.push(cue);size += cue.text.length;}
@@ -323,7 +333,7 @@ const twpVideoTranslator = (() => {
     progress();const ticker = setInterval(progress, 1000);
     try {
       const values = await translate(batch.map(cue => cue.text), options());
-      if (token !== epoch || !enabled) return;
+      if (token !== epoch || !enabled || !currentSource(selected)) return;
       if (values.length !== batch.length) throw new Error('字幕译文不完整，请重试');
       batch.forEach((cue, index) => {translated.set(cue.id, values[index]);const target = outputCues.get(cue.id);if (target) target.text = caption(cue);});
       render();controls();
@@ -335,6 +345,7 @@ const twpVideoTranslator = (() => {
     if (enabled) {rememberVideo(false);stop();return;}
     if (running || scopeBusy || !video || !sources[$('source').value]) return;
     selected = sources[$('source').value];const source=selected, config = options();
+    if(!currentSource(source)){invalidateSources('字幕不属于当前播放资源，请重新检测。');return;}
     if (config.service === 'openai' && !config.profileId && !sameLanguage(config)) {status('请先在模型与术语设置中添加 AI 服务。', true);return;}
     const token = ++epoch;running = true;controls();status('正在载入字幕时间轴…');
     try {
@@ -347,6 +358,7 @@ const twpVideoTranslator = (() => {
       } else if (['bilibili','youtube'].includes(source.kind)) loaded = source.cues?.length && source.pageURL===pageURL && source.video===video ? source.cues : (await twpAIClient.call({action:source.kind==='youtube'?'youtubeSubtitlesRead':'videoSubtitlesRead', token:source.token, pageURL:location.href})).cues;
       else loaded = source.cues;
       if (token !== epoch || !ui) return;
+      if(!currentSource(source)){invalidateSources('字幕载入时视频已变化，请重新检测。');return;}
       cues = loaded;
       if (!cues.length) throw new Error('没有可读取的文字字幕，请开启网站字幕后重新检测，或导入 SRT / VTT。');
       if(['bilibili','youtube'].includes(source.kind)){source.cues=loaded;source.video=video;source.pageURL=pageURL;}
@@ -365,7 +377,7 @@ const twpVideoTranslator = (() => {
       const listen = (event, callback) => {video.addEventListener(event, callback);listeners.push(()=>video.removeEventListener(event, callback));};
       for (const event of ['timeupdate','play','pause','ratechange']) listen(event, render);
       listen('seeking', () => {cancelPending();render();void pump();});
-      listen('emptied', () => {stop('播放器已切换视频，请重新检测字幕。');sources=[];$('source').replaceChildren();controls();});
+      listen('emptied', () => invalidateSources('播放器已切换视频，请重新检测字幕。'));
       if (source.kind === 'native') {const change = () => {try {const updated=twpVideoSubtitles.normalize([...(source.track.cues || [])].map(cue=>({start:cue.startTime,end:cue.endTime,text:cue.text})));if(updated.length!==cues.length||updated.some(cue=>!outputCues.has(cue.id))){stop('字幕轨道已更新，请重新开始翻译。');}else render();}catch {stop('字幕轨道格式已变化，请重新检测。');}};source.track.addEventListener('cuechange',change);listeners.push(()=>source.track.removeEventListener('cuechange',change));}
       clock = setInterval(() => {if (location.href !== pageURL || !video.isConnected) {stop('视频页面已变化，请重新检测字幕。');return;}render();void pump();}, 300);
       controls();render();followCaptionLayout();void pump();
@@ -384,21 +396,34 @@ const twpVideoTranslator = (() => {
     detecting=true;$('video-info').textContent='';controls();
     const previousVideo=video, previous=sources[$('source').value], previousSources=sources, found=[];video = videos[Number($('video').value || 0)];
     if (!video) {detecting=false;sources=[];status('当前页面未找到视频播放器。请在视频所在页面打开此功能。', true);$('source').replaceChildren();controls();return;}
-    for (const [index, track] of [...video.textTracks].entries()) if (!ownTracks.has(track) && ['subtitles','captions'].includes(track.kind)) found.push({kind:'native', track, video, language:track.language || 'auto', label:track.label || track.language || `字幕 ${index+1}`, key:pageURL+':track:'+index});
+    const sourceVideo=video,sourceURL=location.href,mediaURL=video.currentSrc;
+    const current=()=>{
+      const valid=token===discovery&&ui&&video===sourceVideo&&location.href===sourceURL&&video.currentSrc===mediaURL;
+      if(!valid&&token===discovery&&ui)invalidateSources('字幕检测时视频已变化，请重新检测。');
+      return valid;
+    };
+    // addTextTrack survives SPA player reuse and can be owned by other
+    // extensions. Only page-owned <track> elements establish a native source;
+    // platform tracks below have their own validated video identity.
+    const pageTracks=new Set([...video.querySelectorAll('track[src]')].map(element=>element.track));
+    for(const track of video.textTracks)if(!ownTracks.has(track)&&track.label==='页渡 · 双语字幕'){
+      track.mode='hidden';for(const cue of [...(track.cues||[])])track.removeCue(cue);track.mode='disabled';
+    }
+    for (const [index, track] of [...video.textTracks].entries()) if (!ownTracks.has(track) && track.label!=='页渡 · 双语字幕' && pageTracks.has(track) && ['subtitles','captions'].includes(track.kind)) found.push({kind:'native', track, video:sourceVideo, pageURL:sourceURL,mediaURL,language:track.language || 'auto', label:track.label || track.language || `字幕 ${index+1}`, key:sourceURL+':track:'+index});
     let notice = '';
     if(twpYouTubeSubtitles.videoId(location.href)){
       status('正在读取当前 YouTube 播放器字幕…');
       try {
         const result=await twpAIClient.call({action:'youtubeSubtitlesList',pageURL:location.href});
-        if(token!==discovery||!ui)return;
+        if(!current())return;
         notice=result.notice;$('video-info').textContent='字幕来源视频：'+result.title;
-        found.push(...result.tracks.map(track=>({...track,kind:'youtube',video,pageURL,key:result.videoKey+':'+track.trackId})));
+        found.push(...result.tracks.map(track=>({...track,kind:'youtube',video:sourceVideo,pageURL:sourceURL,mediaURL,key:result.videoKey+':'+track.trackId})));
       }catch(error){notice=error.message;}
     }
     if (/(^|\.)bilibili\.com$/.test(location.hostname)) {
       status('正在读取 B 站字幕列表…');
       try {
-        let result=await twpAIClient.call({action:'videoSubtitlesList',pageURL:location.href});if(token!==discovery||!ui)return;
+        let result=await twpAIClient.call({action:'videoSubtitlesList',pageURL:sourceURL});if(!current())return;
         // Content-script fetch uses the video's web origin and its same-site login
         // state. Only fixed API IDs from the background are used, never a page URL.
         if(result.pageToken){
@@ -414,11 +439,11 @@ const twpVideoTranslator = (() => {
               const response=await fetch(endpoint,{credentials:'include',signal:controller.signal,redirect:'error'});
               const text=await response.text();if(!response.ok||text.length>3000000)throw new Error('字幕读取失败');
               const data=JSON.parse(text),body=data.data;
-              if(data.code!==0||(body?.aid!=null&&String(body.aid)!==String(result.aid))||(body?.cid!=null&&String(body.cid)!==String(result.cid)))return [];
+              if(data.code!==0||(body?.aid!=null&&String(body.aid)!==String(result.aid))||(body?.cid!=null&&String(body.cid)!==String(result.cid))||(result.bvid&&body?.bvid!=null&&body.bvid!==result.bvid))return [];
               return Array.isArray(body?.subtitle?.subtitles)?body.subtitle.subtitles:[];
             }));
             const tracks=[...new Map(replies.flatMap(reply=>reply.status==='fulfilled'?reply.value:[]).map(track=>[String(track.id_str||track.id||track.subtitle_url),track])).values()].slice(0,50);
-            if(token!==discovery||!ui||location.href!==url)return;
+            if(!current())return;
             if(Array.isArray(tracks)&&tracks.length){
               const pageResult=await twpAIClient.call({action:'videoSubtitlesPageList',pageURL:url,token:result.pageToken,aid:result.aid,cid:result.cid,tracks});
               const merged=new Map([...result.tracks,...pageResult.tracks].map(track=>[track.trackId,track]));
@@ -427,13 +452,13 @@ const twpVideoTranslator = (() => {
           }catch{/* Retain the background's login notice and any downloaded timeline. */}
           finally{clearTimeout(timer);}
         }
-        if(token!==discovery||!ui)return;notice=result.notice;$('video-info').textContent='字幕来源视频：'+result.title;found.push(...result.tracks.map(track=>({...track,kind:'bilibili',video,pageURL,key:result.videoKey+':'+track.trackId})));
+        if(!current())return;notice=result.notice;$('video-info').textContent='字幕来源视频：'+result.title;found.push(...result.tracks.map(track=>({...track,kind:'bilibili',video:sourceVideo,pageURL:sourceURL,mediaURL,key:result.videoKey+':'+track.trackId})));
       }
       catch (error) {notice = error.message;}
     }
-    if (token !== discovery || !ui) return;
+    if (!current()) return;
     // Transient empty API responses must not discard a previously downloaded timeline.
-    const retained=previousSources.filter(source=>source.video===video&&source.pageURL===pageURL&&source.cues?.length);
+    const retained=previousSources.filter(source=>currentSource(source)&&source.cues?.length);
     if(!found.length&&retained.length){sources=retained;notice=(notice||'字幕接口暂未返回轨道')+'；保留此前已读取的字幕。';}
     else {
       // Keep downloaded tracks through partial as well as completely empty lists.
@@ -567,6 +592,7 @@ const twpVideoTranslator = (() => {
       const loadCues=async()=>{
         if(mode==='audio')return [];
         if(!source){if(mode==='subtitles')throw new Error('请检测字幕或导入 SRT / VTT');return [];}
+        if(!currentSource(source))throw new Error('字幕不属于当前播放资源，请重新检测');
         if(source.kind==='native'){
           const previous=source.track.mode;if(previous==='disabled')source.track.mode='hidden';
           try{const deadline=Date.now()+5000;while(!source.track.cues?.length&&Date.now()<deadline&&twpVideoDubbing.active&&location.href===url)await new Promise(resolve=>setTimeout(resolve,100));return twpVideoSubtitles.normalize([...(source.track.cues||[])].map(cue=>({start:cue.startTime,end:cue.endTime,text:cue.text})));}
@@ -575,7 +601,7 @@ const twpVideoTranslator = (() => {
         try{return source.cues?.length&&source.video===currentVideo&&source.pageURL===url?source.cues:source.kind==='import'?source.cues:(await twpAIClient.call({action:source.kind==='youtube'?'youtubeSubtitlesRead':'videoSubtitlesRead',token:source.token,pageURL:url})).cues;}
         catch(error){if(mode==='subtitles')throw error;voiceStatus('字幕不可读取，切换到英语音频识别…');return [];}
       };
-      try{if(!profilesLoaded||profilesURL!==url)await refreshVoices();if(root!==voiceRoot||location.href!==url)return;await twpVideoDubbing.start({video:currentVideo,language:mode==='audio'?'en':language,speed:Number($('voice-speed').value),voiceProfileId:$('voice-profile').value,loadCues:async()=>{const result=await loadCues();if(mode==='subtitles'&&!result?.length)throw new Error('当前字幕轨道没有文字，请重新检测');return result||[];},status:voiceStatus,onState:voiceState});}
+      try{if(!profilesLoaded||profilesURL!==url)await refreshVoices();if(root!==voiceRoot||location.href!==url)return;await twpVideoDubbing.start({video:currentVideo,language:mode==='audio'?'en':language,speed:Number($('voice-speed').value),voiceProfileId:$('voice-profile').value,loadCues:async()=>{const result=await loadCues();if(source&&!currentSource(source))throw new Error('字幕载入时视频已变化，请重新检测');if(mode==='subtitles'&&!result?.length)throw new Error('当前字幕轨道没有文字，请重新检测');return result||[];},status:voiceStatus,onState:voiceState});}
       catch(error){voiceStatus(error.message,true);}
     };
     $('voice-start').onclick=voiceStart;$('player-voice').onclick=voiceStart;
@@ -622,7 +648,8 @@ const twpVideoTranslator = (() => {
     $('retry').onclick=()=>{failed=false;controls();void pump();};$('all').onclick=()=>{all=true;controls();void pump();};
     $('import').onchange=async()=>{
       const file=$('import').files[0];if(!file)return;stop();const token=++discovery;
-      try {if(!/\.(srt|vtt)$/i.test(file.name)||file.size>200000)throw new Error('请选择不超过 200 KB 的 SRT / VTT 文件');const imported=twpVideoSubtitles.parseFile(await file.text());if(!ui||token!==discovery)return;sources.push({kind:'import',label:file.name,language:'auto',video,pageURL,key:pageURL+':import:'+file.name,cues:imported});$('source').append(new Option(file.name+' · 已导入',String(sources.length-1)));$('source').value=String(sources.length-1);chosenSourceKey=sources[sources.length-1].key;translated=new Map();status(`已导入 ${imported.length} 条字幕，请开始翻译。`);controls();}catch(error){if(ui&&token===discovery)status(error.message,true);}
+      const sourceVideo=video,sourceURL=location.href,mediaURL=video?.currentSrc;
+      try {if(!/\.(srt|vtt)$/i.test(file.name)||file.size>200000)throw new Error('请选择不超过 200 KB 的 SRT / VTT 文件');const imported=twpVideoSubtitles.parseFile(await file.text());if(!ui||token!==discovery)return;if(video!==sourceVideo||location.href!==sourceURL||video?.currentSrc!==mediaURL){invalidateSources('导入字幕时视频已变化，请重新导入。');return;}sources.push({kind:'import',label:file.name,language:'auto',video:sourceVideo,pageURL:sourceURL,mediaURL,key:sourceURL+':import:'+file.name,cues:imported});$('source').append(new Option(file.name+' · 已导入',String(sources.length-1)));$('source').value=String(sources.length-1);chosenSourceKey=sources[sources.length-1].key;translated=new Map();status(`已导入 ${imported.length} 条字幕，请开始翻译。`);controls();}catch(error){if(ui&&token===discovery)status(error.message,true);}
     };
     $('export').onclick=()=>{
       const text=twpVideoSubtitles.exportSRT(cues,translated);if(!text)return;const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='video'+(translated.size<cues.length?'.partial':'')+'.bilingual.srt';link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
@@ -660,7 +687,7 @@ const twpVideoTranslator = (() => {
     else if(!enabled && !running && !video?.isConnected){video=findPlayer();sources=[];positionEntrance();}
     if(ui&&!twpVideoDubbing.active&&!enabled&&!running&&!detecting&&!autoRestoring&&video?.readyState>=1&&autoAttempts<3&&Date.now()>=autoNext&&savedVideoSettings().enabled&&!chrome.extension?.inIncognitoContext){
       autoAttempts++;autoNext=Date.now()+4000;autoRestoring=true;const url=location.href;
-      void (async()=>{await scopeReady;if(!ui||url!==location.href)return;await detect();if(!ui||url!==location.href)return;if(savedVideoSettings().enabled&&sources.length)await start();else if(!sources.length)status('自动检测尚未获取可读字幕，当前未开启翻译。'+$('status').textContent,true);})().catch(error=>{if(ui)status(error.message,true);}).finally(()=>{autoRestoring=false;if(ui)controls();});
+      void (async()=>{await scopeReady;if(!ui||url!==location.href)return;await detect();if(!ui||url!==location.href)return;if(savedVideoSettings().enabled&&sources.length){const source=sources[$('source').value];if(sameLanguage({sourceLanguage:source?.language,targetLanguage:$('target').value}))status('源字幕与目标语言相同，保留网站原字幕；需要时可手动开启。');else await start();}else if(!sources.length)status('自动检测尚未获取可读字幕，当前未开启翻译。'+$('status').textContent,true);})().catch(error=>{if(ui)status(error.message,true);}).finally(()=>{autoRestoring=false;if(ui)controls();});
     }
   }
   // A signed YouTube caption replay can be empty even though the track exists.

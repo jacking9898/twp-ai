@@ -126,10 +126,14 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
       if(new URL(route.request().url()).pathname==='/video.wav'){
         const range=route.request().headers().range?.match(/bytes=(\d+)-(\d*)/),start=range?Number(range[1]):0,end=range&&range[2]?Math.min(Number(range[2]),wav.length-1):wav.length-1;
         return route.fulfill({status:range?206:200,headers:{'content-type':'audio/wav','accept-ranges':'bytes',...(range?{'content-range':`bytes ${start}-${end}/${wav.length}`}:{})},body:wav.subarray(start,end+1)});
-      }return route.fulfill({contentType:'text/html',body:delayedBiliControls?html(false).replace('class="bpx-player-container"','class=""').replace(/<div class="bpx-player-control-bottom-right">.*?<\/div>/,''):html(false)});
+      }
+      const staleTracks=`<script>for(const [label,language] of [['Other extension captions','en'],['页渡 · 双语字幕','zh-CN']]){const track=document.querySelector('video').addTextTrack('subtitles',label,language);track.mode='hidden';track.addCue(new VTTCue(1,4,'这波看直播的时候印象非常深刻啊'));}</script>`;
+      return route.fulfill({contentType:'text/html',body:(delayedBiliControls?html(false).replace('class="bpx-player-container"','class=""').replace(/<div class="bpx-player-control-bottom-right">.*?<\/div>/,''):html(false))+staleTracks});
     });
     await context.route('https://api.bilibili.com/**',route=>{
-      const url=new URL(route.request().url());apiRequests.push(url.href);const data=url.pathname==='/x/web-interface/view'?{aid:123,title:'Bilibili subtitle fixture',pages:[{page:1,cid:10},{page:2,cid:20}]}:{need_login_subtitle:emptyList,subtitle:{subtitles:emptyList?[]:[{lan:'zh-TW',lan_doc:'中文',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/chinese.json'},{lan:'en',lan_doc:'English',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/test.json'}]}};
+      const url=new URL(route.request().url());apiRequests.push(url.href);
+      const chinese=url.searchParams.get('bvid')==='BVChineseOnly'||url.searchParams.get('aid')==='456';
+      const data=url.pathname==='/x/web-interface/view'?{bvid:url.searchParams.get('bvid'),aid:chinese?456:123,title:'Bilibili subtitle fixture',pages:[{page:1,cid:chinese?50:10},{page:2,cid:20}]}:{need_login_subtitle:!chinese&&emptyList,subtitle:{subtitles:!chinese&&emptyList?[]:[{lan:'zh-TW',lan_doc:'中文',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/chinese.json'},...chinese?[]:[{lan:'en',lan_doc:'English',subtitle_url:'//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/test.json'}]]}};
       if(partialList&&data.subtitle)data.subtitle.subtitles=data.subtitle.subtitles.slice(0,1);return route.fulfill({contentType:'application/json',body:JSON.stringify({code:0,data})});
     });
     await context.route('https://aisubtitle.hdslb.com/**',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({body:route.request().url().includes('chinese.json')?Array.from({length:31},(_,i)=>({from:i*2,to:i*2+2,content:'我喜欢鱼。'})):rows.map(row=>({from:row.start,to:row.end,content:row.text}))})}));
@@ -152,6 +156,9 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await expect(panel.locator('#player-tools')).toBeHidden();await page.locator('.bpx-player-control-bottom-right').evaluate(el=>el.style.display='flex');delayedBiliControls=false;
     await expect(panel.locator('#player-tools')).toBeVisible();expect(apiRequests.length).toBe(0);await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await playerClick('player-toggle');await expect(panel.locator('#source option')).toHaveCount(2);await expect(panel.locator('#source')).toHaveValue('1');expect(apiRequests.some(url=>url.includes('cid=20'))).toBe(true);
     await expect(panel.locator('#status')).toContainText('已翻译 10 / 14');await expect(panel.locator('#current')).toContainText('视频译文');await expect(panel.locator('#settings-panel')).toBeHidden();await playerClick('player-settings');
+    expect(await panel.locator('#source').innerText()).not.toContain('Other extension');
+    expect(await panel.locator('#current').innerText()).not.toContain('看直播');
+    expect(await page.locator('video').evaluate(video=>[...video.textTracks].find(track=>track.label==='页渡 · 双语字幕').mode)).toBe('disabled');
     expect(pageReads).toBe(1);pageFallback=false;emptyList=false;partialList=false;
     // Player-only English is absent from the generic endpoint. Observe a real
     // page request before opening settings, then replay that exact signed URL.
@@ -213,7 +220,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     const beforePositionChange=calls.length,timeBeforePositionChange=await page.locator('video').evaluate(video=>video.currentTime);
     await panel.locator('#quick-position').selectOption('top');await expect(panel.locator('#position')).toHaveValue('top');
     await expect.poll(async()=>{const translation=await panel.locator('#captions').boundingBox(),player=await page.locator('video').boundingBox();return translation.y>=player.y&&translation.y+translation.height<player.y+player.height/2;}).toBe(true);
-    await page.locator('video').evaluate(video=>video.requestFullscreen());expect(await page.locator('video').evaluate(video=>[...video.textTracks].find(track=>track.label==='页渡 · 双语字幕').cues[0].line)).toBe(1);await page.evaluate(()=>document.exitFullscreen());
+    await page.locator('video').evaluate(video=>video.requestFullscreen());expect(await page.locator('video').evaluate(video=>[...video.textTracks].find(track=>track.label==='页渡 · 双语字幕'&&track.mode!=='disabled').cues[0].line)).toBe(1);await page.evaluate(()=>document.exitFullscreen());
     await panel.locator('#player-icon').hover();if(!await panel.locator('#quick-settings').isVisible())await panel.locator('#player-settings').click();await panel.locator('#quick-position').selectOption('raised');await expect(panel.locator('#position')).toHaveValue('raised');await expect.poll(aboveBurnedText).toBe(true);
     await expect.poll(()=>worker.evaluate(()=>twpConfig.get('videoTranslationPreferences')['www.bilibili.com'].position)).toBe('raised');
     expect(calls.length).toBe(beforePositionChange);expect(await page.locator('video').evaluate(video=>video.currentTime)).toBeCloseTo(timeBeforePositionChange,1);
@@ -279,6 +286,28 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await panel.locator('#start').click();await expect.poll(currentRendererSeparated).toBe(true);
     await page.evaluate(()=>history.pushState({},'', '?p=1'));await expect(panel.locator('#status')).toContainText('切换视频');expect((await trackState()).at(-1).cues.length).toBe(0);await expect(panel.locator('#start')).toBeDisabled();
     await panel.locator('#close').click();expect(errors).toEqual([]);
+    // Home-page clicks can reuse preview/player nodes, including unrelated
+    // dynamic tracks. A Chinese-only video must not auto-enable an overlay.
+    const chinesePage=await context.newPage(),chinesePanel=chinesePage.locator('#twp-video-translator');
+    await chinesePage.route('https://www.bilibili.com/**',route=>{
+      if(new URL(route.request().url()).pathname==='/video.wav')return route.fallback();
+      return route.fulfill({contentType:'text/html',body:html(false)+`<a id="home-video" href="/video/BVChineseOnly">打开中文动画</a><script>const video=document.querySelector('video');const track=video.addTextTrack('subtitles','Stale League captions','en');track.mode='hidden';track.addCue(new VTTCue(1,4,'这波看直播的时候印象非常深刻啊'));document.getElementById('home-video').onclick=event=>{event.preventDefault();history.pushState({},'','/video/BVChineseOnly');};</script>`});
+    });
+    const beforeChineseAuto=calls.length;await chinesePage.goto('https://www.bilibili.com/');await chinesePage.locator('#home-video').click();
+    await expect(chinesePanel.locator('#source option')).toHaveCount(1);await expect(chinesePanel.locator('#status')).toContainText('保留网站原字幕');
+    await expect(chinesePanel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(chinesePanel.locator('#captions')).toBeHidden();expect(calls.length).toBe(beforeChineseAuto);
+    // A subtitle response arriving after same-URL media replacement cannot
+    // attach the old timeline; emptied listeners are not installed until start.
+    let releaseSubtitle,subtitleRequested;const subtitleGate=new Promise(resolve=>{releaseSubtitle=resolve;}),subtitleRequest=new Promise(resolve=>{subtitleRequested=resolve;});
+    const delayedSubtitleURL='https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/chinese.json';
+    await context.route(delayedSubtitleURL,async route=>{subtitleRequested();await subtitleGate;return route.fulfill({contentType:'application/json',body:JSON.stringify({body:[{from:1,to:4,content:'我喜欢鱼。'}]})});});
+    await chinesePage.locator('video').evaluate(video=>video.currentTime=1.2);
+    await chinesePanel.locator('#player-icon').hover();await chinesePanel.locator('#player-settings').click();await chinesePanel.locator('#player-more').click();await chinesePanel.locator('#start').click();
+    let subtitleWait;try{await Promise.race([subtitleRequest,new Promise((_,reject)=>{subtitleWait=setTimeout(()=>reject(new Error('Subtitle fixture was not requested')),10000);})]);}
+    catch(error){console.error('Pending subtitle source:',await chinesePanel.locator('#source').innerText(),await chinesePanel.locator('#status').innerText());throw error;}finally{clearTimeout(subtitleWait);}
+    await chinesePage.locator('video').evaluate(video=>video.src='/video.wav?replacement=1');
+    await expect.poll(()=>chinesePage.locator('video').evaluate(video=>video.currentSrc)).toContain('replacement=1');releaseSubtitle();
+    await expect(chinesePanel.locator('#status')).toContainText('视频已变化');await expect(chinesePanel.locator('#captions')).toBeHidden();await expect(chinesePanel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await chinesePage.close();await context.unroute(delayedSubtitleURL);
     // YouTube uses its page-owned player response. Exercise the actual MAIN
     // world bridge in the unpacked extension, not a mocked extension message.
     const youtubeId='abcdefghijk',youtubeRequests=[];let youtubeEmptyReplies=false;
@@ -375,10 +404,12 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     youtubeEmptyReplies=false;await page.evaluate(url=>fetch(url).then(r=>r.text()),youtubeTracks[1].baseUrl);youtubeEmptyReplies=true;
     await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:10000});await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toContainText('Hello YouTube');
     await playerClick('player-toggle');await page.reload();await expect(panel.locator('#player-tools')).toBeVisible();await page.evaluate(()=>document.dispatchEvent(new Event('yedu-youtube-captions-ready')));await page.waitForTimeout(5000);await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(panel.locator('#source option')).toHaveCount(0);
-    // A Chinese-only track is shown directly, without calling any translator.
+    // Chinese-only tracks keep the website captions; manual enable still
+    // shows the source directly without calling a translator.
     youtubeEmptyReplies=false;ytResponse.captions={playerCaptionsTracklistRenderer:{captionTracks:[youtubeTracks[0]]}};
     await page.goto('about:blank');await worker.evaluate(()=>twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{service:'bing'}}));const beforeYouTubeChinese=await worker.evaluate(()=>self.liveSwitchCalls.length);await page.goto('https://www.youtube.com/watch?v='+youtubeId);
-    await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:12000});await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toHaveText('这是中文字幕');expect(await worker.evaluate(()=>self.liveSwitchCalls.length)).toBe(beforeYouTubeChinese);
+    await expect(panel.locator('#status')).toContainText('保留网站原字幕',{timeout:12000});await expect(panel.locator('#player-toggle')).toHaveAttribute('aria-checked','false');await expect(panel.locator('#captions')).toBeHidden();
+    await playerClick('player-toggle');await expect(panel.locator('#start')).toHaveText('停止视频翻译');await page.evaluate(()=>document.querySelector('video').currentTime=1.2);await expect(panel.locator('#captions')).toHaveText('这是中文字幕');expect(await worker.evaluate(()=>self.liveSwitchCalls.length)).toBe(beforeYouTubeChinese);
     // SPA navigation away from a supported video removes both entrances and
     // the reserved control slot, even while the old player stays in the DOM.
     await showControls();await expect(dock.locator('#video-tool')).toBeVisible();
@@ -387,7 +418,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await expect(page.locator('video')).toHaveCount(1);
     await page.evaluate(id=>history.pushState({},'', '/watch?v='+id),youtubeId);
     await expect(dock.locator('#video-tool')).toBeVisible();await expect(panel.locator('#player-tools')).toBeVisible();await dock.locator('#close').click();
-    await expect(panel.locator('#source option')).toHaveCount(1);await expect(panel.locator('#start')).toHaveText('停止视频翻译',{timeout:12000});
+    await expect(panel.locator('#source option')).toHaveCount(1);await expect(panel.locator('#status')).toContainText('保留网站原字幕',{timeout:12000});await playerClick('player-toggle');await expect(panel.locator('#start')).toHaveText('停止视频翻译');
     // Reload the real extension while its old video UI and timers remain live.
     expect(await worker.evaluate(()=>captionVoiceRequests)).toEqual([]);
     const restarted=context.waitForEvent('serviceworker',w=>w.url().includes(base.split('/')[2]));await worker.evaluate(()=>chrome.runtime.reload()).catch(error=>{if(!/closed|destroyed|Target/i.test(error.message))throw error;});await restarted;
