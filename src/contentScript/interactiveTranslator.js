@@ -118,7 +118,7 @@ const twpInteractiveTranslator = (() => {
     $("cancel").onclick = () => { selectionVersion++; cancelGroup("quick-selection"); $("result").textContent = "已取消翻译"; $("cancel").hidden = true; $("retry").hidden = false; };
     $("copy").onclick = async () => { try { await navigator.clipboard.writeText(resultText); $("copy").textContent = "已复制"; } catch { $("copy").textContent = "请选中译文复制"; } };
 
-    function valid(record) { return record.piece.nodes.every((node, i) => node.isConnected && node.textContent === record.piece.source[i]); }
+    function valid(record) { return bilingualTranslator.unchanged(record.piece); }
     function restoreRecord(record) {
       record.version++; cancelGroup(record.group); record.element?.remove(); record.element = null; record.state = "original";
     }

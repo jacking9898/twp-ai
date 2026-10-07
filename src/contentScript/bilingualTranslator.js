@@ -12,6 +12,31 @@ const bilingualTranslator = (() => {
     '[translate="no"]', ".notranslate", marker,
   ].join(",");
   let activeSession = null;
+  const mathSelector = "math, mjx-container, tex-math, .MathJax, .MathJax_SVG, .MathJax_CHTML, .katex";
+  let mathCloneId = 0;
+
+  function inlineMath(element, style) {
+    return element.matches(mathSelector) && element.getAttribute("display") !== "block" &&
+      !element.hasAttribute("data-twp-bilingual") &&
+      !element.closest('.MathJax_Display, .MathJax_SVG_Display, .katex-display') &&
+      (style.display.startsWith("inline") || ["math", "contents"].includes(style.display));
+  }
+
+  function mathSource(element) {
+    let script = element.nextElementSibling;
+    while (script?.matches(marker)) script = script.nextElementSibling;
+    const tex = element.querySelector('annotation[encoding="application/x-tex"]')?.textContent ||
+      (script?.matches('script[type^="math/tex"]') ? script.textContent : "") ||
+      element.getAttribute("data-tex") || element.getAttribute("aria-label") || element.textContent;
+    // Dollar delimiters use the existing provider formula protection, while
+    // giving the translator the formula's position inside the whole sentence.
+    return `$${tex.trim()}$`;
+  }
+
+  function unchanged(piece) {
+    return piece.nodes.every((node, i) => node.isConnected && node.textContent === piece.source[i]) &&
+      (piece.math || []).every(item => item.node.outerHTML === item.html && mathSource(item.node) === item.text);
+  }
 
   function reportState(session) {
     if (activeSession !== session) return;
@@ -34,29 +59,42 @@ const bilingualTranslator = (() => {
     const pieces = [];
     function visit(container) {
       let nodes = [];
+      let math = [];
       function flush() {
-        while (nodes.length && !nodes[0].textContent.trim()) nodes.shift();
-        while (nodes.length && !nodes[nodes.length - 1].textContent.trim()) nodes.pop();
+        while (nodes.length && !nodes[0].textContent.trim() && !math.some(item => item.node === nodes[0])) nodes.shift();
+        while (nodes.length && !nodes[nodes.length - 1].textContent.trim() && !math.some(item => item.node === nodes[nodes.length - 1])) nodes.pop();
         if (nodes.length) {
           let anchor = nodes[nodes.length - 1];
           while (anchor.parentNode && anchor.parentNode !== container) {
             anchor = anchor.parentNode;
           }
-          pieces.push({ container, anchor, nodes, source: nodes.map(n => n.textContent) });
+          // A standalone formula is not prose to translate.
+          if (nodes.some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) {
+            pieces.push({ container, anchor, nodes, math, source: nodes.map(n => n.textContent) });
+          }
           nodes = [];
         }
+        math = [];
       }
       function walk(parent) {
         for (const child of parent.childNodes) {
           if (child.nodeType === Node.TEXT_NODE) {
             nodes.push(child);
           } else if (child.nodeType === Node.ELEMENT_NODE) {
+            // Our inserted translation and MathJax's hidden TeX script are
+            // transparent to paragraph collection on subsequent scans.
+            if (child.matches(marker) || child.matches('script[type^="math/tex"]')) continue;
+            const style = getComputedStyle(child);
+            if (style.display === "none" || style.visibility === "hidden") continue;
+            if (inlineMath(child, style)) {
+              nodes.push(child);
+              math.push({ node: child, text: mathSource(child), html: child.outerHTML });
+              continue;
+            }
             if (isExcluded(child)) {
               flush();
               continue;
             }
-            const style = getComputedStyle(child);
-            if (style.display === "none" || style.visibility === "hidden") continue;
             if (child.tagName === "BR") {
               flush();
             } else if (style.display === "inline" || style.display === "contents") {
@@ -78,7 +116,9 @@ const bilingualTranslator = (() => {
   function matches(record, piece) {
     return record.container === piece.container && record.anchor === piece.anchor &&
       record.nodes.length === piece.nodes.length &&
-      record.nodes.every((node, i) => node === piece.nodes[i] && record.source[i] === piece.source[i]);
+      record.nodes.every((node, i) => node === piece.nodes[i] && record.source[i] === piece.source[i]) &&
+      record.math.length === piece.math.length &&
+      record.math.every((item, i) => item.html === piece.math[i].html && item.text === piece.math[i].text);
   }
 
   function textForTranslation(piece) {
@@ -89,8 +129,9 @@ const bilingualTranslator = (() => {
     piece.nodes.forEach((node, i) => {
       const whitespace = getComputedStyle(node.parentElement).whiteSpace;
       const previous = runs[runs.length - 1];
-      if (previous && previous.whitespace === whitespace) previous.text += piece.source[i];
-      else runs.push({ whitespace, text: piece.source[i] });
+      const text = piece.math?.find(item => item.node === node)?.text ?? piece.source[i];
+      if (previous && previous.whitespace === whitespace) previous.text += text;
+      else runs.push({ whitespace, text });
     });
     return runs.map(({ whitespace, text }) => {
       if (["pre", "pre-wrap", "break-spaces"].includes(whitespace)) return text;
@@ -134,7 +175,7 @@ const bilingualTranslator = (() => {
       "font-size: .95em !important; line-height: 1.65 !important; " +
       "white-space: pre-wrap !important; user-select: text !important;";
     // Translation service responses are text, never executable HTML.
-    element.textContent = text;
+    appendTranslation(element, record, text);
     record.anchor.after(element);
     if (tab) {
       const bounds = tab.getBoundingClientRect();
@@ -150,6 +191,43 @@ const bilingualTranslator = (() => {
     }
     record.element = element;
     session.elements.add(element);
+  }
+
+  function appendTranslation(element, record, text) {
+    const formulas = new Map((record.math || []).map(item => [item.text, item.node]));
+    if (!formulas.size) { element.textContent = text; return; }
+    const escaped = [...formulas.keys()].sort((a, b) => b.length - a.length)
+      .map(value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(escaped.join("|"), "g");
+    let offset = 0;
+    for (const match of text.matchAll(pattern)) {
+      element.append(document.createTextNode(text.slice(offset, match.index)));
+      const clone = formulas.get(match[0]).cloneNode(true);
+      // Translation prose preserves line breaks; rendered math must keep its
+      // own whitespace rules so source indentation cannot enlarge the clone.
+      clone.style.whiteSpace = getComputedStyle(formulas.get(match[0])).whiteSpace;
+      // Keep SVG glyph references functional without duplicating website IDs.
+      const ids = new Map();
+      const descendants = [clone, ...clone.querySelectorAll("*")];
+      for (const node of descendants) {
+        if (node.id) { const id = `twp-math-${++mathCloneId}`; ids.set(node.id, id); node.id = id; }
+      }
+      for (const node of descendants) {
+        for (const attr of [...node.attributes]) {
+          if (attr.name.startsWith("on")) node.removeAttribute(attr.name);
+          else {
+            let value = attr.value.replace(/url\(#([^)]*)\)/g, (all, id) => ids.has(id) ? `url(#${ids.get(id)})` : all);
+            if (["href", "xlink:href"].includes(attr.name) && ids.has(value.slice(1)) && value.startsWith("#")) value = `#${ids.get(value.slice(1))}`;
+            if (value !== attr.value) node.setAttribute(attr.name, value);
+          }
+        }
+      }
+      clone.querySelectorAll("script").forEach(node => node.remove());
+      clone.setAttribute("translate", "no");
+      element.append(clone);
+      offset = match.index + match[0].length;
+    }
+    element.append(document.createTextNode(text.slice(offset)));
   }
 
   async function flush(session) {
@@ -183,7 +261,7 @@ const bilingualTranslator = (() => {
       if (activeSession !== session) return;
       batch.forEach((record, i) => {
         if (session.records.get(record.nodes[0]) !== record || !record.container.isConnected) return;
-        if (!record.nodes.every((node, j) => node.isConnected && node.textContent === record.source[j])) return;
+        if (!unchanged(record)) return;
         if (!Array.isArray(results[i]) || !results[i].length ||
             results[i].some(text => typeof text !== "string")) {
           throw new Error("Invalid bilingual translation response");
@@ -308,5 +386,6 @@ const bilingualTranslator = (() => {
     return record.element;
   }
   return { start, stop, paragraphAt, renderParagraph, textForTranslation,
+    unchanged,
     sourceText:()=>collect().map(textForTranslation).join("\n\n") };
 })();

@@ -66,6 +66,33 @@ module.exports = async ({ context, worker, id, page, calls, configure }) => {
   expect(calls.at(-1).body.model).toBe("test-model");
   await page.keyboard.press("Control");
   await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  // Rendered formulas must survive the content script -> SDK -> provider ->
+  // hover renderer path as one sentence, rather than separate prose fragments.
+  const firstMarkup = await page.locator("#first").innerHTML();
+  await page.locator("#first").evaluate(element => {
+    element.innerHTML = 'Cross feature <span id="hover-math-original" class="MathJax_SVG" style="display:inline-block">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="20"><text x="0" y="16">x₁</text></svg>' +
+      '</span><script type="math/tex">x_1</script> with ' +
+      '<span class="MathJax_SVG" style="display:inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="20">' +
+      '<text x="0" y="16">x₂</text></svg></span><script type="math/tex">x_2</script> to learn a nonlinear model.';
+    window.hoverOriginalMath = element.querySelector("#hover-math-original");
+  });
+  await page.locator("#first").hover({position:{x:4,y:4}});
+  await page.keyboard.press("Control");
+  const mathTranslation = page.locator("#first > [data-twp-interactive=translated]");
+  await expect(mathTranslation).toHaveCount(1);
+  await expect(mathTranslation.locator(".MathJax_SVG")).toHaveCount(2);
+  await expect(mathTranslation).toContainText("Cross feature");
+  await expect(mathTranslation).toContainText("to learn a nonlinear model.");
+  expect(await mathTranslation.textContent()).not.toMatch(/__TWP_KEEP_|\$x_/);
+  const protectedSentence = JSON.parse(calls.at(-1).body.messages.at(-1).content).segments;
+  expect(protectedSentence).toHaveLength(1);
+  expect(protectedSentence[0].text).toMatch(/Cross feature __TWP_KEEP_\d+__ with __TWP_KEEP_\d+__ to learn a nonlinear model\./);
+  expect(await page.evaluate(() => document.getElementById("hover-math-original") === hoverOriginalMath)).toBe(true);
+  await page.keyboard.press("Control");
+  await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  await page.locator("#first").evaluate((element, html) => { element.innerHTML = html; }, firstMarkup);
+  await page.locator("#first").hover();
   const beforeChord = calls.length;
   await page.keyboard.press("Control+c");
   await page.waitForTimeout(250);

@@ -294,6 +294,109 @@ test("translation input respects CSS whitespace and explicit line breaks", async
   })).toBe("First bold text last.\u00a0End.");
 });
 
+const svgMath = (id, tex) => `<span id="${id}" class="MathJax_SVG" style="display:inline-block">
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="22" viewBox="0 0 48 22" aria-label="${tex}">
+    <defs><path id="${id}-glyph" d="M4 4L14 18M14 4L4 18"/></defs>
+    <use href="#${id}-glyph" stroke="currentColor"/><text x="18" y="19" font-size="12">1</text>
+  </svg></span><script type="math/tex">${tex}</script>`;
+
+test("MathJax formulas stay inside complete bilingual sentences and preserve original DOM", async ({ page }) => {
+  const paragraphs = `<p id="nonlinear">A nonlinear model has the form ${svgMath("sum", "b + w_1x_1 + w_2x_2")}. Its decision surface is not a line.</p>
+    <p id="cross">Cross the features ${svgMath("x1", "x_1")} and ${svgMath("x2", "x_2")}, then use a
+    <a id="math-link" href="#model"><strong>linear model</strong></a>: ${svgMath("larger-sum", "b + w_1x_1 + w_2x_2 + w_3x_3")}
+    where ${svgMath("x3", "x_3")} is the cross between ${svgMath("again-x1", "x_1")} and ${svgMath("again-x2", "x_2")}.</p>
+    <p id="math-end">The final feature is ${svgMath("final-x", "x_4")}</p>`;
+  await setup(page, fixture.replace("<main>", `<main>${paragraphs}`));
+  const before = await page.evaluate(() => {
+    window.originalFormula = document.getElementById("sum");
+    window.originalMathLink = document.getElementById("math-link");
+    window.mathClicks = 0;
+    originalMathLink.addEventListener("click", () => window.mathClicks++);
+    return ["nonlinear", "cross"].map(id => document.getElementById(id).innerHTML);
+  });
+  await translate(page);
+  await expect(page.locator("#nonlinear > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#cross > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#math-end > [data-twp-bilingual]")).toHaveCount(1);
+  const sentences = await page.evaluate(() => testRequests.flatMap(r => r.sourceArray2d.flat()));
+  expect(sentences).toContain("A nonlinear model has the form $b + w_1x_1 + w_2x_2$. Its decision surface is not a line.");
+  expect(sentences).toContain("Cross the features $x_1$ and $x_2$, then use a linear model: $b + w_1x_1 + w_2x_2 + w_3x_3$ where $x_3$ is the cross between $x_1$ and $x_2$.");
+  await expect(page.locator("#cross > [data-twp-bilingual] .MathJax_SVG")).toHaveCount(6);
+  await expect(page.locator("#nonlinear > [data-twp-bilingual] svg")).toHaveCount(1);
+  expect(await page.locator("#cross > [data-twp-bilingual]").textContent()).not.toContain("$");
+  expect(await page.evaluate(() => originalFormula === document.getElementById("sum") &&
+    originalMathLink === document.getElementById("math-link"))).toBe(true);
+  expect(await page.evaluate(() => {
+    const ids = [...document.querySelectorAll("[id]")].map(node => node.id);
+    return new Set(ids).size === ids.length && [...document.querySelectorAll("[data-twp-bilingual] use")]
+      .every(node => node.closest("svg").querySelector(node.getAttribute("href")));
+  })).toBe(true);
+  await page.locator("#math-link").click();
+  expect(await page.evaluate(() => mathClicks)).toBe(1);
+  // A rescan and a viewport change must not insert new breaks or duplicate math.
+  await page.evaluate(() => { document.getElementById("details").firstChild.textContent = "Changed paragraph."; });
+  await expect(page.locator("#details [data-twp-bilingual]")).toContainText("Changed");
+  expect(await page.evaluate(() => testRequests.flatMap(request => request.sourceArray2d.flat())
+    .filter(text => text.startsWith("The final feature")))).toEqual(["The final feature is $x_4$"]);
+  for (const width of [1000, 420]) {
+    await page.setViewportSize({width, height:1000});
+    await expect(page.locator("#cross > [data-twp-bilingual]")).toHaveCount(1);
+    expect(await page.locator("#cross").evaluate(element => {
+      const translation = element.querySelector("[data-twp-bilingual]");
+      const formulas = [...element.querySelectorAll(":scope > .MathJax_SVG")];
+      const copies = [...translation.querySelectorAll(".MathJax_SVG")];
+      return formulas.every((node, i) => node.getBoundingClientRect().bottom <= translation.getBoundingClientRect().top &&
+        copies[i].getBoundingClientRect().height <= node.getBoundingClientRect().height + 1);
+    })).toBe(true);
+    await page.screenshot({path:`build/bilingual-math-${width}.png`, fullPage:true});
+  }
+  await page.evaluate(() => pageTranslator.restorePage());
+  expect(await page.evaluate(() => ["nonlinear", "cross"].map(id => document.getElementById(id).innerHTML))).toEqual(before);
+});
+
+test("inline MathML, KaTeX and MathJax v3 group prose while standalone math and code stay excluded", async ({ page }) => {
+  const mixed = `<p id="mathml">Feature <math><msub><mi>x</mi><mn>1</mn></msub></math> is useful.</p>
+    <p id="katex">Feature <span class="katex" style="display:inline-block"><span aria-hidden="true">x₂</span>
+      <math style="display:none"><semantics><annotation encoding="application/x-tex">x_2</annotation></semantics></math></span> is useful.</p>
+    <p id="mjx">Feature <mjx-container style="display:inline-block" aria-label="x_3"><span>x₃</span></mjx-container> is useful.</p>
+    <div class="MathJax_SVG_Display">${svgMath("display-math", "DISPLAY_FORMULA")}</div>
+    <math display="block"><mi>BLOCK_FORMULA</mi></math>
+    <p id="only-math">${svgMath("standalone", "STANDALONE_FORMULA")}</p>
+    <p id="code-boundary">Before code<code>PROTECTED_CODE</code>After code</p>
+    <p id="hidden-boundary">Before<span hidden>HIDDEN_TEXT</span> after.</p>`;
+  await setup(page, fixture.replace("<main>", `<main>${mixed}`));
+  await translate(page);
+  for (const id of ["mathml", "katex", "mjx", "hidden-boundary"]) {
+    await expect(page.locator(`#${id} > [data-twp-bilingual]`)).toHaveCount(1);
+  }
+  await expect(page.locator("#code-boundary > [data-twp-bilingual]")).toHaveCount(2);
+  await expect(page.locator("#only-math [data-twp-bilingual], .MathJax_SVG_Display [data-twp-bilingual]")).toHaveCount(0);
+  const sentences = await page.evaluate(() => testRequests.flatMap(r => r.sourceArray2d.flat()));
+  expect(sentences).toContain("Feature $x_2$ is useful.");
+  expect(sentences).toContain("Feature $x_3$ is useful.");
+  expect(sentences.join(" ")).not.toMatch(/DISPLAY_FORMULA|BLOCK_FORMULA|STANDALONE_FORMULA|PROTECTED_CODE|HIDDEN_TEXT/);
+  await expect(page.locator("#mathml > [data-twp-bilingual] math")).toHaveCount(1);
+  await expect(page.locator("#katex > [data-twp-bilingual] .katex")).toHaveCount(1);
+  await expect(page.locator("#mjx > [data-twp-bilingual] mjx-container")).toHaveCount(1);
+});
+
+test("formula-only DOM edits refresh the translation and stale responses cannot render", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><p id="changing">Feature ${svgMath("changing-math", "x_1")} is useful.</p>`));
+  await page.evaluate(() => { window.translationDelay = 500; });
+  await translate(page);
+  await page.waitForFunction(() => testRequests.some(request => request.sourceArray2d.flat().some(text => text.includes("$x_1$"))));
+  await page.evaluate(() => { document.getElementById("changing-math").nextElementSibling.textContent = "x_2"; });
+  await expect(page.locator("#changing > [data-twp-bilingual]")).toHaveCount(1);
+  expect(await page.evaluate(() => testRequests.flatMap(request => request.sourceArray2d.flat()).filter(text => text.startsWith("Feature"))))
+    .toEqual(["Feature $x_1$ is useful.", "Feature $x_2$ is useful."]);
+  await page.evaluate(() => {
+    document.querySelector("#changing-math svg").setAttribute("width", "60");
+    document.getElementById("changing-math").nextElementSibling.textContent = "x_3";
+  });
+  await expect(page.locator("#changing > [data-twp-bilingual] svg")).toHaveAttribute("width", "60");
+  await expect(page.locator("#changing > [data-twp-bilingual]")).toHaveCount(1);
+});
+
 test("translation stays pending until the provider actually replies", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => { window.translationDelay = 800; });
