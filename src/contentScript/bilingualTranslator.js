@@ -99,6 +99,7 @@ const bilingualTranslator = (() => {
 
   function unchanged(piece) {
     return piece.nodes.every((node, i) => node.isConnected && node.textContent === piece.source[i]) &&
+      (piece.literals || []).every(item => item.node.outerHTML === item.html) &&
       (piece.math || []).every(item => item.node.outerHTML === item.html && mathSource(item.node) === item.text);
   }
 
@@ -124,6 +125,9 @@ const bilingualTranslator = (() => {
     function visit(container) {
       let nodes = [];
       let math = [];
+      let literals = [];
+      let literalPrefix = "__TWP_INLINE_";
+      while (container.textContent.includes(literalPrefix)) literalPrefix += "X";
       function flush() {
         while (nodes.length && !nodes[0].textContent.trim() && !math.some(item => item.node === nodes[0])) nodes.shift();
         while (nodes.length && !nodes[nodes.length - 1].textContent.trim() && !math.some(item => item.node === nodes[nodes.length - 1])) nodes.pop();
@@ -134,11 +138,12 @@ const bilingualTranslator = (() => {
           }
           // A standalone formula is not prose to translate.
           if (nodes.some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) {
-            pieces.push({ container, anchor, nodes, math, source: nodes.map(n => n.textContent) });
+            pieces.push({ container, anchor, nodes, math, literals, source: nodes.map(n => n.textContent) });
           }
           nodes = [];
         }
         math = [];
+        literals = [];
       }
       function walk(parent) {
         for (const child of parent.childNodes) {
@@ -155,13 +160,25 @@ const bilingualTranslator = (() => {
               math.push({ node: child, text: mathSource(child), html: child.outerHTML });
               continue;
             }
+            // Inline code/keys belong to the surrounding sentence. Protect
+            // their contents without flushing prose or translating them alone.
+            // Explicit website exclusions still take precedence.
+            if (child.matches("code, kbd") && ["inline", "inline-block", "contents"].includes(style.display) &&
+                !child.closest('pre, [translate="no"], .notranslate, [contenteditable]:not([contenteditable="false"])') &&
+                !child.hidden && child.getAttribute("aria-hidden") !== "true") {
+              nodes.push(child);
+              const value = child.textContent;
+              const text = `\`${/[`\r\n]/.test(value) ? `${literalPrefix}${literals.length}__` : value}\``;
+              literals.push({ node: child, text, html: child.outerHTML });
+              continue;
+            }
             if (isExcluded(child)) {
               flush();
               continue;
             }
             if (child.tagName === "BR") {
               flush();
-            } else if (style.display === "inline" || style.display === "contents") {
+            } else if (["inline", "inline-block", "contents"].includes(style.display)) {
               walk(child);
             } else {
               flush();
@@ -181,6 +198,8 @@ const bilingualTranslator = (() => {
     return record.container === piece.container && record.anchor === piece.anchor &&
       record.nodes.length === piece.nodes.length &&
       record.nodes.every((node, i) => node === piece.nodes[i] && record.source[i] === piece.source[i]) &&
+      record.literals.length === piece.literals.length &&
+      record.literals.every((item, i) => item.html === piece.literals[i].html && item.text === piece.literals[i].text) &&
       record.math.length === piece.math.length &&
       record.math.every((item, i) => item.html === piece.math[i].html && item.text === piece.math[i].text);
   }
@@ -193,7 +212,8 @@ const bilingualTranslator = (() => {
     piece.nodes.forEach((node, i) => {
       const whitespace = getComputedStyle(node.parentElement).whiteSpace;
       const previous = runs[runs.length - 1];
-      const text = piece.math?.find(item => item.node === node)?.text ?? piece.source[i];
+      const text = piece.literals?.find(item => item.node === node)?.text ??
+        piece.math?.find(item => item.node === node)?.text ?? piece.source[i];
       if (previous && previous.whitespace === whitespace) previous.text += text;
       else runs.push({ whitespace, text });
     });
@@ -267,7 +287,7 @@ const bilingualTranslator = (() => {
       return;
     }
     const template = document.createElement("template");
-    const formulas = [...new Set((record.math || []).map(item => item.text))];
+    const formulas = [...new Set([...(record.math || []), ...(record.literals || [])].map(item => item.text))];
     // TeX comparisons such as $x<y$ are text, not HTML tags. Escape protected
     // formulas before parsing; the inert parser decodes them back for cloning.
     template.innerHTML = formulas.length ? text.replace(formulaPattern(formulas), value =>
@@ -296,11 +316,21 @@ const bilingualTranslator = (() => {
 
   function appendFormulaTranslation(element, record, text) {
     const formulas = new Map((record.math || []).map(item => [item.text, item.node]));
+    const literals = new Map((record.literals || []).map(item => [item.text, item.node]));
+    for (const [token, node] of literals) formulas.set(token, node);
     if (!formulas.size) { element.append(document.createTextNode(text)); return; }
     const pattern = formulaPattern(formulas.keys());
     let offset = 0;
     for (const match of text.matchAll(pattern)) {
       element.append(document.createTextNode(text.slice(offset, match.index)));
+      if (literals.has(match[0])) {
+        const source = literals.get(match[0]);
+        const copy = document.createElement(source.localName);
+        copy.textContent = source.textContent;
+        element.append(copy);
+        offset = match.index + match[0].length;
+        continue;
+      }
       const clone = formulas.get(match[0]).cloneNode(true);
       // Translation prose preserves line breaks; rendered math must keep its
       // own whitespace rules so source indentation cannot enlarge the clone.
@@ -472,7 +502,7 @@ const bilingualTranslator = (() => {
   function paragraphAt(element, x, y) {
     if (!(element instanceof Element) || element.closest(excluded) || element.isContentEditable) return null;
     let root = element;
-    while (root.parentElement && ["inline", "contents"].includes(getComputedStyle(root).display)) root = root.parentElement;
+    while (root.parentElement && ["inline", "inline-block", "contents"].includes(getComputedStyle(root).display)) root = root.parentElement;
     if (root === document.body || root === document.documentElement) return null;
     const pieces = collect(root);
     return pieces.find(piece => {

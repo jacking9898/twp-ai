@@ -67,7 +67,7 @@ const fs = require("node:fs");
     });
     await context.route("https://bilingual.test/**", route => route.fulfill({
       contentType: "text/html",
-      body: '<html><head><title>Original title</title></head><body style="padding:40px"><p id="paragraph">Original text with <a href="#">a working link</a>.</p></body></html>',
+      body: '<html><head><title>Original title</title></head><body style="padding:40px"><p id="paragraph">Original text with <a href="#">a working link</a>.</p><ul><li id="inline-code">Input values <code>0.00</code>, <code>0.00</code>, and <code>0.00</code></li></ul></body></html>',
     }));
     const page = await context.newPage();
     page.on("pageerror", error => errors.push(error.message));
@@ -82,9 +82,13 @@ const fs = require("node:fs");
     await worker.evaluate(tab => chrome.tabs.sendMessage(tab, { action: "translatePage", targetLanguage: "zh-CN" }), tabId);
     await expect(page.locator("#paragraph [data-twp-bilingual]")).toHaveCount(1);
     await expect(page.locator("#paragraph a")).toHaveText("a working link");
+    await expect(page.locator("#inline-code > [data-twp-bilingual]")).toHaveCount(1);
+    await expect(page.locator("#inline-code > [data-twp-bilingual] code")).toHaveCount(3);
+    await expect(page.locator("#inline-code > [data-twp-bilingual]")).toHaveText("中文：Input values 0.00, 0.00, and 0.00");
     await worker.evaluate(tab => chrome.tabs.sendMessage(tab, { action: "restorePage" }), tabId);
     await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
     await expect(page.locator("#paragraph")).toHaveText("Original text with a working link.");
+    await expect(page.locator("#inline-code")).toHaveText("Input values 0.00, 0.00, and 0.00");
 
     // The popup must reflect provider failures while it is open, and recover
     // when a subsequent translation succeeds.

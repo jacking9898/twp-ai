@@ -450,6 +450,89 @@ test("translation input respects CSS whitespace and explicit line breaks", async
   })).toBe("First bold text last.\u00a0End.");
 });
 
+test("exercise lists keep inline code and inline-block links in one bilingual sentence", async ({ page }) => {
+  const exercise = `<style>code {background:#eef;font-size:14px} #relu {display:inline-block}</style>
+    <h2>Exercise 1</h2><ul id="exercise">
+    <li id="input-layer">Input layer with 3 neurons containing the values <code id="first-value">0.00</code>,
+      <code style="display:inline-block">0.00</code>, and <code>0.00</code></li>
+    <li>Hidden layer with 4 neurons</li><li>Output layer with 1 neuron</li>
+    <li id="activation"><a id="relu" href="#details">ReLU</a> activation function applied to all hidden layer nodes and the output node</li>
+    </ul><p id="keys">Press <kbd>Ctrl</kbd> and <kbd>K</kbd> to continue.</p>
+    <p id="literal-only"><code>STANDALONE_CODE</code></p>
+    <pre><code>BLOCK_CODE</code></pre>`;
+  await setup(page, fixture.replace("<main>", `<main>${exercise}`));
+  const before = await page.locator("#exercise").innerHTML();
+  await page.evaluate(() => {
+    window.originalValue = document.getElementById("first-value");
+    window.originalRelu = document.getElementById("relu");
+    window.reluClicks = 0;
+    originalRelu.addEventListener("click", () => reluClicks++);
+  });
+  await translate(page);
+  const translation = page.locator("#input-layer > [data-twp-bilingual]");
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("code")).toHaveCount(3);
+  await expect(translation).toHaveText("中文：Input layer with 3 neurons containing the values 0.00, 0.00, and 0.00");
+  await expect(page.locator("#activation > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#relu [data-twp-bilingual]")).toHaveCount(0);
+  await expect(page.locator("#keys > [data-twp-bilingual] kbd")).toHaveCount(2);
+  await expect(page.locator("#literal-only [data-twp-bilingual], pre [data-twp-bilingual]")).toHaveCount(0);
+  const sentences = await page.evaluate(() => testRequests.flatMap(request => request.sourceArray2d.flat()));
+  expect(sentences).toContain("Input layer with 3 neurons containing the values `0.00`, `0.00`, and `0.00`");
+  expect(sentences.join(" ")).not.toMatch(/STANDALONE_CODE|BLOCK_CODE/);
+  await page.locator("#relu").click();
+  expect(await page.evaluate(() => reluClicks)).toBe(1);
+  for (const width of [1000, 420]) {
+    await page.setViewportSize({width, height:1000});
+    await expect(translation).toHaveCount(1);
+    expect(await page.locator("#input-layer").evaluate(element => {
+      const translated = element.querySelector("[data-twp-bilingual]");
+      const range = document.createRange();
+      range.setStart(element, 0);
+      range.setEndBefore(translated);
+      return range.getBoundingClientRect().bottom <= translated.getBoundingClientRect().top &&
+        element.querySelectorAll("code:not([data-twp-bilingual] code)").length === 3 &&
+        translated.previousSibling.nodeName === "CODE";
+    })).toBe(true);
+    await page.screenshot({path:`build/bilingual-inline-code-${width}.png`, fullPage:true});
+  }
+  await page.evaluate(() => { document.getElementById("details").firstChild.textContent = "Trigger a rescan."; });
+  await expect(page.locator("#details [data-twp-bilingual]")).toContainText("Trigger");
+  await expect(translation).toHaveCount(1);
+  expect(await page.evaluate(() => originalValue === document.getElementById("first-value") &&
+    originalRelu === document.getElementById("relu"))).toBe(true);
+  await page.evaluate(() => pageTranslator.restorePage());
+  expect(await page.locator("#exercise").innerHTML()).toBe(before);
+});
+
+test("inline code edits invalidate pending responses and single paragraph rendering preserves literals", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><p id="literal-edit">Compare <code id="literal-value">x &lt; y</code> before continuing.</p>`));
+  await page.evaluate(() => { window.translationDelay = 500; });
+  await translate(page);
+  await page.waitForFunction(() => testRequests.some(request => request.sourceArray2d.flat().some(text => text.includes("`x < y`"))));
+  await page.evaluate(() => { document.getElementById("literal-value").textContent = "x > y"; });
+  const translation = page.locator("#literal-edit > [data-twp-bilingual]");
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("code")).toHaveText("x > y");
+  await page.evaluate(() => {
+    pageTranslator.restorePage();
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("literal-edit"), 0, 0);
+    bilingualTranslator.renderParagraph(piece, `<strong>中文：</strong>${bilingualTranslator.textForTranslation(piece)}`, "zh-CN");
+  });
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("strong")).toHaveText("中文：");
+  await expect(translation.locator("code")).toHaveText("x > y");
+  // Code containing backticks, line breaks or markup stays inert and exact.
+  await page.evaluate(() => {
+    document.querySelectorAll("[data-twp-bilingual]").forEach(node => node.remove());
+    document.getElementById("literal-value").textContent = "`x`\n<img src=x onerror=alert(1)>";
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("literal-edit"), 0, 0);
+    bilingualTranslator.renderParagraph(piece, bilingualTranslator.textForTranslation(piece) + " 译文", "zh-CN");
+  });
+  await expect(translation.locator("code")).toHaveText("`x`\n<img src=x onerror=alert(1)>", {useInnerText:false});
+  await expect(translation.locator("img")).toHaveCount(0);
+});
+
 const svgMath = (id, tex) => `<span id="${id}" class="MathJax_SVG" style="display:inline-block">
   <svg xmlns="http://www.w3.org/2000/svg" width="48" height="22" viewBox="0 0 48 22" aria-label="${tex}">
     <defs><path id="${id}-glyph" d="M4 4L14 18M14 4L4 18"/></defs>
@@ -525,12 +608,14 @@ test("inline MathML, KaTeX and MathJax v3 group prose while standalone math and 
   for (const id of ["mathml", "katex", "mjx", "hidden-boundary"]) {
     await expect(page.locator(`#${id} > [data-twp-bilingual]`)).toHaveCount(1);
   }
-  await expect(page.locator("#code-boundary > [data-twp-bilingual]")).toHaveCount(2);
+  await expect(page.locator("#code-boundary > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#code-boundary > [data-twp-bilingual] code")).toHaveText("PROTECTED_CODE");
   await expect(page.locator("#only-math [data-twp-bilingual], .MathJax_SVG_Display [data-twp-bilingual]")).toHaveCount(0);
   const sentences = await page.evaluate(() => testRequests.flatMap(r => r.sourceArray2d.flat()));
   expect(sentences).toContain("Feature $x_2$ is useful.");
   expect(sentences).toContain("Feature $x_3$ is useful.");
-  expect(sentences.join(" ")).not.toMatch(/DISPLAY_FORMULA|BLOCK_FORMULA|STANDALONE_FORMULA|PROTECTED_CODE|HIDDEN_TEXT/);
+  expect(sentences).toContain("Before code`PROTECTED_CODE`After code");
+  expect(sentences.join(" ")).not.toMatch(/DISPLAY_FORMULA|BLOCK_FORMULA|STANDALONE_FORMULA|HIDDEN_TEXT/);
   await expect(page.locator("#mathml > [data-twp-bilingual] math")).toHaveCount(1);
   await expect(page.locator("#katex > [data-twp-bilingual] .katex")).toHaveCount(1);
   await expect(page.locator("#mjx > [data-twp-bilingual] mjx-container")).toHaveCount(1);
