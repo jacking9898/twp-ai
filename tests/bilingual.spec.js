@@ -190,6 +190,162 @@ test("translation text cannot create executable markup", async ({ page }) => {
   expect(await page.evaluate(() => window.xssTriggered)).toBe(false);
 });
 
+test("provider footnote markup renders as superscript without changing the original", async ({ page }) => {
+  const html = fixture.replace('<p id="details">', '<p id="footnote">Computer vision.<sup><a id="reference" href="#note">1</a></sup></p><p id="details">');
+  await setup(page, html);
+  const before = await page.locator("#footnote").innerHTML();
+  await page.evaluate(() => bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+    translate: async source => source.map(() => ["计算机视觉。<sup>1</sup> 水 H<sub>2</sub>O。<SUP>2</SUP>"]) }));
+  const translation = page.locator("#footnote > [data-twp-bilingual]");
+  await expect(translation).toHaveText("计算机视觉。1 水 H2O。2");
+  await expect(translation.locator("sup")).toHaveCount(2);
+  await expect(translation.locator("sub")).toHaveText("2");
+  expect(await translation.locator("sup").first().evaluate(node => getComputedStyle(node).verticalAlign)).toBe("super");
+  await expect(page.locator("#reference")).toHaveAttribute("href", "#note");
+  await page.locator("#reference").click();
+  await expect(page).toHaveURL(/#note$/);
+  await page.screenshot({ path: "build/bilingual-footnote.png", fullPage: true });
+  await page.evaluate(() => bilingualTranslator.stop());
+  expect(await page.locator("#footnote").innerHTML()).toBe(before);
+});
+
+test("formatting discards provider attributes and keeps unknown response markup inert", async ({ page }) => {
+  await setup(page);
+  const unsafe = '<sup onclick="window.xssTriggered=true">1</sup> <sup><img src=x onerror="window.xssTriggered=true"></sup>';
+  await page.evaluate(text => {
+    window.xssTriggered = false;
+    bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+      translate: async source => source.map(() => [text]) });
+  }, unsafe);
+  const translation = page.locator("#intro [data-twp-bilingual]");
+  await expect(translation.locator("sup")).toHaveCount(2);
+  await expect(translation.locator("sup").first()).toHaveText("1");
+  await expect(translation.locator("sup").last()).toContainText("<img");
+  await expect(translation.locator("[onclick], img")).toHaveCount(0);
+  await translation.locator("sup").first().click();
+  expect(await page.evaluate(() => window.xssTriggered)).toBe(false);
+});
+
+test("nested inline annotations render without accepting provider styles or scripts", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    window.xssTriggered = false;
+    bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+      translate: async source => source.map(() => [
+        '<strong style="display:none" onclick="window.xssTriggered=true">重点 <em>斜体<sup>3</sup></em></strong>' +
+        ' <u>下划线</u> <del>删除</del> <ins>新增</ins> <mark>高亮</mark> H<sub>2</sub>O<br>' +
+        '<code>x &lt; 2</code> <ruby>汉<rt>hàn</rt><rp>(音)</rp></ruby> <small>注释</small>' +
+        '<script>window.xssTriggered=true</script><svg onload="window.xssTriggered=true"></svg>'
+      ]) });
+  });
+  const translation = page.locator("#intro [data-twp-bilingual]");
+  for (const selector of ["strong em sup", "u", "del", "ins", "mark", "sub", "br", "code", "ruby rt", "ruby rp", "small"]) {
+    await expect(translation.locator(selector)).toHaveCount(1);
+  }
+  await expect(translation.locator("strong")).toBeVisible();
+  await expect(translation.locator("code")).toHaveText("x < 2");
+  await expect(translation.locator("[style], [onclick], script, svg")).toHaveCount(0);
+  expect(await page.evaluate(() => window.xssTriggered)).toBe(false);
+});
+
+test("footnote formatting and original inline formula clones render together", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><p id="math-footnote">Feature ${svgMath("footnote-math", "x<y & z>0")} is useful.<sup>1</sup></p>`));
+  await page.evaluate(() => bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+    translate: async source => source.map(() => ["特征 $x<y & z>0$ 很有用。<sup>1</sup> 后面的公式 <strong>$x<y & z>0$</strong>。"]) }));
+  const translation = page.locator("#math-footnote > [data-twp-bilingual]");
+  await expect(translation.locator("sup")).toHaveText("1");
+  await expect(translation.locator(".MathJax_SVG")).toHaveCount(2);
+  await expect(translation.locator("strong .MathJax_SVG")).toHaveCount(1);
+  expect(await translation.textContent()).not.toMatch(/<sup>|\$x<y/);
+});
+
+test("detached inline discussion buttons follow source reflow and restore without duplication", async ({ page }) => {
+  const discussions = `<style>#disqussions_wrapper {position:absolute;top:0;left:0}
+    .disqussion {position:absolute;padding:5px 10px 10px;font:13px/16px sans-serif}
+    .disqussion-link {display:block;width:20px;height:17px;background:#bbb;color:white}</style>
+    <p id="comment-first" data-disqus-identifier="first">A paragraph with a comment.</p>
+    <p id="comment-second" data-disqus-identifier="second">The later paragraph must keep its comment beside it.</p>
+    <img id="comment-image" data-disqus-identifier="image" alt="" style="display:block;width:100px;height:30px">
+    <div id="disqussions_wrapper"><div class="disqussion"><a class="disqussion-link" href="#first-comments" data-disqus-identifier="first" data-disqus-position="right">4</a></div>
+    <div class="disqussion"><a class="disqussion-link" href="#second-comments" data-disqus-identifier="second" data-disqus-position="right">2</a></div>
+    <div class="disqussion"><a class="disqussion-link" href="#image-comments" data-disqus-identifier="image" data-disqus-position="left">1</a></div></div>`;
+  await setup(page, fixture.replace("</main>", `${discussions}</main>`));
+  const originalTop = await page.locator("#comment-second").evaluate(node => node.getBoundingClientRect().top);
+  await page.evaluate(() => {
+    window.commentButtons = [...document.querySelectorAll(".disqussion-link")];
+    window.commentClicks = 0;
+    commentButtons.forEach(link => {
+      link.addEventListener("click", () => window.commentClicks++);
+      const rect = document.querySelector(`:not(.disqussion-link)[data-disqus-identifier="${link.dataset.disqusIdentifier}"]`).getBoundingClientRect();
+      link.parentElement.style.top = `${rect.top + scrollY}px`;
+      link.parentElement.style.left = `${rect.right + scrollX}px`;
+    });
+  });
+  async function checkPositions() {
+    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll(".disqussion-link")].every(link => {
+      const source = document.querySelector(`:not(.disqussion-link)[data-disqus-identifier="${link.dataset.disqusIdentifier}"]`).getBoundingClientRect();
+      const note = link.parentElement.getBoundingClientRect();
+      return Math.abs(note.top - source.top) < 1 && (link.dataset.disqusPosition === "left"
+        ? Math.abs(note.right - source.left) < 1 : Math.abs(note.left - source.right) < 1);
+    }))).toBe(true);
+    await expect(page.locator(".disqussion-link")).toHaveCount(3);
+    await expect(page.locator("#disqussions_wrapper [data-twp-bilingual]")).toHaveCount(0);
+  }
+  await translate(page);
+  await expect(page.locator("#comment-second > [data-twp-bilingual]")).toHaveCount(1);
+  await checkPositions();
+  await page.setViewportSize({ width: 1200, height: 1100 });
+  await checkPositions();
+  expect(await page.locator("#comment-second").evaluate(node => node.getBoundingClientRect().top)).toBeGreaterThan(originalTop);
+  expect(await page.evaluate(() => testRequests.flatMap(request => request.sourceArray2d.flat()).some(text => ["4", "2", "1"].includes(text)))).toBe(false);
+  await page.setViewportSize({ width: 420, height: 1100 });
+  await checkPositions();
+  await page.evaluate(() => { document.getElementById("comment-first").firstChild.textContent = "Changed paragraph. ".repeat(8); });
+  await expect(page.locator("#comment-first > [data-twp-bilingual]")).toContainText("Changed paragraph");
+  await checkPositions();
+  await page.evaluate(() => { document.getElementById("comment-first").style.paddingBottom = "70px"; });
+  await checkPositions();
+  await page.screenshot({ path: "build/bilingual-discussions.png", fullPage: true });
+  await page.locator('.disqussion-link[data-disqus-identifier="second"]').click();
+  expect(await page.evaluate(() => commentClicks)).toBe(1);
+  expect(await page.evaluate(() => commentButtons.every(link => link.isConnected))).toBe(true);
+  await page.evaluate(() => pageTranslator.restorePage());
+  await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
+  await checkPositions();
+});
+
+test("late discussion buttons and single paragraph translations keep their source positions", async ({ page }) => {
+  await setup(page);
+  await translate(page);
+  await expect(page.locator("#intro > [data-twp-bilingual]")).toHaveCount(1);
+  await page.evaluate(() => {
+    document.getElementById("details").setAttribute("data-disqus-identifier", "details-comment");
+    const wrapper = document.createElement("div");
+    wrapper.id = "disqussions_wrapper";
+    wrapper.style.cssText = "position:absolute;top:0;left:0";
+    wrapper.innerHTML = '<div class="disqussion" style="position:absolute;top:0;left:0"><a class="disqussion-link" href="#comments" data-disqus-identifier="details-comment" data-disqus-position="right">4</a></div>';
+    document.body.append(wrapper);
+  });
+  async function checkPosition() {
+    await expect.poll(() => page.evaluate(() => {
+      const source = document.getElementById("details").getBoundingClientRect();
+      const note = document.querySelector(".disqussion").getBoundingClientRect();
+      return Math.abs(source.top - note.top) < 1 && Math.abs(source.right - note.left) < 1;
+    })).toBe(true);
+  }
+  await checkPosition();
+  await page.evaluate(() => pageTranslator.restorePage());
+  await checkPosition();
+  await page.evaluate(() => {
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("intro"), 0, 0);
+    bilingualTranslator.renderParagraph(piece, "单段译文。".repeat(15), "zh-CN");
+  });
+  await checkPosition();
+  await page.evaluate(() => document.querySelector("[data-twp-bilingual]").remove());
+  await checkPosition();
+  await expect(page.locator(".disqussion-link")).toHaveCount(1);
+});
+
 test("the popup display setting persists and changes an already translated page", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => {

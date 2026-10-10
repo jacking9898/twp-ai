@@ -10,10 +10,74 @@ const bilingualTranslator = (() => {
     "mjx-container", "canvas", "video", "audio", "iframe", "object",
     "nav", '[role="navigation"]', '[role="button"]', '[role="menu"]',
     '[translate="no"]', ".notranslate", marker,
+    "#disqussions_wrapper", "#disqussions_overlay", "#disqus_thread", ".disqussion",
   ].join(",");
   let activeSession = null;
   const mathSelector = "math, mjx-container, tex-math, .MathJax, .MathJax_SVG, .MathJax_CHTML, .katex";
   let mathCloneId = 0;
+  const formattingTags = new Set([
+    "sup", "sub", "b", "strong", "i", "em", "u", "s", "strike", "del", "ins",
+    "small", "mark", "code", "kbd", "samp", "var", "abbr", "cite", "q",
+    "ruby", "rt", "rp", "span", "br", "wbr",
+  ]);
+  let discussionObserver = null;
+  let discussionResizeObserver = null;
+  let discussionFrame = 0;
+  let discussionOnResize = null;
+
+  function watchInlineDiscussions() {
+    // inlineDisqussions positions detached comment buttons only once, before
+    // our translations expand the article. Keep the existing buttons and their
+    // handlers, but align them with the original paragraph/image after reflow.
+    if (!document.querySelector("#disqussions_wrapper .disqussion")) return;
+    function schedule() {
+      if (discussionFrame) return;
+      discussionFrame = requestAnimationFrame(() => {
+        discussionFrame = 0;
+        const sources = new Map();
+        for (const source of document.querySelectorAll("[data-disqus-identifier]")) {
+          if (!source.closest("#disqussions_wrapper")) sources.set(source.getAttribute("data-disqus-identifier"), source);
+        }
+        for (const link of document.querySelectorAll("#disqussions_wrapper .disqussion-link[data-disqus-identifier]")) {
+          const source = sources.get(link.getAttribute("data-disqus-identifier"));
+          const note = link.closest(".disqussion");
+          if (!source || !note) continue;
+          const rect = source.getBoundingClientRect();
+          if (!rect.width && !rect.height) continue;
+          const parent = note.offsetParent;
+          const origin = parent?.getBoundingClientRect() || { top: -window.scrollY, left: -window.scrollX };
+          const top = rect.top - origin.top - (parent?.clientTop || 0) + (parent?.scrollTop || 0);
+          const edge = link.getAttribute("data-disqus-position") === "left"
+            ? rect.left - note.getBoundingClientRect().width : rect.right;
+          const left = edge - origin.left - (parent?.clientLeft || 0) + (parent?.scrollLeft || 0);
+          if (note.style.top !== `${top}px`) note.style.top = `${top}px`;
+          if (note.style.left !== `${left}px`) note.style.left = `${left}px`;
+        }
+        // A final alignment after restoring the page also handles resized or
+        // dynamically edited source content. No observers remain after restore.
+        if (!document.querySelector(marker)) {
+          discussionObserver?.disconnect();
+          discussionResizeObserver?.disconnect();
+          window.removeEventListener("resize", discussionOnResize);
+          discussionObserver = discussionResizeObserver = null;
+          discussionOnResize = null;
+        }
+      });
+    }
+    if (!discussionObserver) {
+      discussionObserver = new MutationObserver(mutations => {
+        if (mutations.some(mutation => !(mutation.type === "attributes" &&
+            mutation.attributeName === "style" && mutation.target.matches(".disqussion")))) schedule();
+      });
+      discussionObserver.observe(document.body, { childList: true, characterData: true, subtree: true,
+        attributes: true, attributeFilter: ["style", "class", "hidden", "data-disqus-identifier"] });
+      discussionResizeObserver = new ResizeObserver(schedule);
+      discussionResizeObserver.observe(document.body);
+      discussionOnResize = schedule;
+      window.addEventListener("resize", discussionOnResize);
+    }
+    schedule();
+  }
 
   function inlineMath(element, style) {
     return element.matches(mathSelector) && element.getAttribute("display") !== "block" &&
@@ -174,7 +238,7 @@ const bilingualTranslator = (() => {
       "padding-inline-start: .65em !important; border-inline-start: 2px solid #80808066 !important; " +
       "font-size: .95em !important; line-height: 1.65 !important; " +
       "white-space: pre-wrap !important; user-select: text !important;";
-    // Translation service responses are text, never executable HTML.
+    // Only explicit safe formatting and source formula clones become DOM nodes.
     appendTranslation(element, record, text);
     record.anchor.after(element);
     if (tab) {
@@ -191,14 +255,49 @@ const bilingualTranslator = (() => {
     }
     record.element = element;
     session.elements.add(element);
+    watchInlineDiscussions();
   }
 
   function appendTranslation(element, record, text) {
-    const formulas = new Map((record.math || []).map(item => [item.text, item.node]));
-    if (!formulas.size) { element.textContent = text; return; }
-    const escaped = [...formulas.keys()].sort((a, b) => b.length - a.length)
+    // Parse in an inert template, then rebuild only inline formatting with fresh
+    // nodes and no provider attributes. Unknown markup remains visible text.
+    // Keep plain responses untouched, including literal angle brackets/entities.
+    if (![...text.matchAll(/<\/?([a-z][\w-]*)\b/gi)].some(match => formattingTags.has(match[1].toLowerCase()))) {
+      appendFormulaTranslation(element, record, text);
+      return;
+    }
+    const template = document.createElement("template");
+    const formulas = [...new Set((record.math || []).map(item => item.text))];
+    // TeX comparisons such as $x<y$ are text, not HTML tags. Escape protected
+    // formulas before parsing; the inert parser decodes them back for cloning.
+    template.innerHTML = formulas.length ? text.replace(formulaPattern(formulas), value =>
+      value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")) : text;
+    function append(parent, nodes) {
+      for (const node of nodes) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          appendFormulaTranslation(parent, record, node.textContent);
+        } else if (node.nodeType === Node.ELEMENT_NODE && formattingTags.has(node.localName)) {
+          const formatted = document.createElement(node.localName);
+          append(formatted, node.childNodes);
+          parent.append(formatted);
+        } else {
+          appendFormulaTranslation(parent, record, node.outerHTML ?? `<!--${node.textContent}-->`);
+        }
+      }
+    }
+    append(element, template.content.childNodes);
+  }
+
+  function formulaPattern(values) {
+    const escaped = [...values].sort((a, b) => b.length - a.length)
       .map(value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const pattern = new RegExp(escaped.join("|"), "g");
+    return new RegExp(escaped.join("|"), "g");
+  }
+
+  function appendFormulaTranslation(element, record, text) {
+    const formulas = new Map((record.math || []).map(item => [item.text, item.node]));
+    if (!formulas.size) { element.append(document.createTextNode(text)); return; }
+    const pattern = formulaPattern(formulas.keys());
     let offset = 0;
     for (const match of text.matchAll(pattern)) {
       element.append(document.createTextNode(text.slice(offset, match.index)));
@@ -314,6 +413,7 @@ const bilingualTranslator = (() => {
     }
     session.records = next;
     flush(session);
+    watchInlineDiscussions();
   }
 
   function stop() {
