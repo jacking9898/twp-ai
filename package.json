@@ -27,6 +27,7 @@
     "test:context-lifecycle": "node --test tests/selection-context.cjs tests/languages-context.cjs && node tests/context-lifecycle-extension.cjs",
     "test:context-upgrade": "node tests/context-upgrade-extension.cjs",
     "test:ai-extension": "node tests/ai-extension.cjs",
+    "test:selection-dictionary": "node --test tests/offline-dictionary.cjs tests/selection-dictionary.cjs && playwright test tests/selection-dictionary.spec.js && node tests/selection-dictionary-extension.cjs",
     "test:ai-resilience": "node tests/ai-resilience-extension.cjs",
     "test:sidebar": "node --test tests/documents.cjs tests/sidepanel-background.cjs tests/pdf-cache.cjs",
     "test:pdf-cache": "node tests/pdf-cache-extension.cjs",

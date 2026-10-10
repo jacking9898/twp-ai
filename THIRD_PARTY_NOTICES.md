@@ -6,6 +6,12 @@
 
 页渡 · Yedu 由 jacking9898 独立维护。双语 DOM 翻译、AI 接入、侧边栏、文本对比、自定义专家和发布配置等变更属于此 fork 的开发工作，不代表上游发布。MPL 覆盖文件的修改继续使用 MPL-2.0。本项目新增代码及自行编写的预设也按 MPL-2.0 提供；第三方组件适用其原许可。
 
+## 离线英汉词库
+
+`src/data/dictionary/` 来自 [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) 完整 `stardict.7z`，固定修订 `bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b`。上游声明为 MIT，保留 Linwei 署名及完整文本 `licenses/ECDICT-MIT.txt`；词库不改称本项目原创或 MPL 数据。全部 3,402,564 条原始 CSV 记录与 13 个字段保存在 256 个本地 JSON 索引中，没有按词频筛成精简版。索引清单记录原始文件和每片的 SHA-256。转换脚本为 `scripts/build-offline-dictionary.py`，来源、统计及重建方法见 [离线词典说明](docs/offline-dictionary.md)。
+
+在线补充使用 Free Dictionary API，按返回的 `sourceUrls` 和 `license` 显示实际来源及许可；不将在线词条的许可替换为离线库的 MIT。浏览器朗读不属于词库录音。
+
 ## JavaScript 依赖
 
 本地配音服务独立安装 faster-whisper、CTranslate2、PyTorch、OPUS-MT en-zh、GPT-SoVITS 及其发音和语言检测资源。其源码、模型和 Python 环境只保存在用户本机的 `.local-data/voice/`，不进入扩展安装 ZIP。上游源码与模型来源、固定源码修订和下载方式见 [local-voice/README.md](local-voice/README.md)；各自许可证随下载来源保留。本项目新编写的服务、扩展集成和部署脚本使用 MPL-2.0。

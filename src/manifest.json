@@ -153,6 +153,7 @@
         "/contentScript/showOriginal.js",
         "/contentScript/bilingualTranslator.js",
         "/contentScript/pageTranslator.js",
+        "/contentScript/selectionDictionary.js",
         "/contentScript/interactiveTranslator.js",
         "/contentScript/translateSelected.js",
         "/contentScript/showTranslated.js"

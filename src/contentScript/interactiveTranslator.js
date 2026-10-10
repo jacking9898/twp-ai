@@ -29,22 +29,28 @@ const twpInteractiveTranslator = (() => {
     const isExcluded = element => !(element instanceof Element) || !!element.closest(excluded) || element.isContentEditable;
     const inUI = event => event.composedPath().includes(host) || event.target?.closest?.("#twp-floating");
     const cancelGroup = group => { twpAIClient.cancel(group); legacyRequests.get(group)?.(); };
+    const dictionary = twpSelectionDictionary.create({ shadow,
+      translate: texts => translateMany(texts, "quick-dictionary"), cancel: () => cancelGroup("quick-dictionary"),
+      reposition: () => popupAt(selection?.x || 12, selection?.y || 80) });
     function translate(text, group) {
+      return translateMany([text], group).then(values => values[0]);
+    }
+    function translateMany(texts, group) {
       const service = pageTranslator.getService(), language = twpConfig.get("targetLanguage");
-      if (!text.trim() || text.length > 16000) return Promise.reject(new Error("请将选中文字控制在 16000 字符以内"));
-      if (service === "openai") return twpAIClient.translate([text], language, document.title, group).then(values => values[0]);
+      if (!texts.length || texts.some(text => !text.trim()) || texts.join("").length > 16000) return Promise.reject(new Error("请将选中文字控制在 16000 字符以内"));
+      if (service === "openai") return twpAIClient.translate(texts, language, document.title, group);
       return new Promise((resolve, reject) => {
         let done = false;
         const finish = (error, values) => {
           if (done) return;
           done = true; clearTimeout(timer); legacyRequests.delete(group);
-          if (error) reject(error); else resolve(values[0]);
+          if (error) reject(error); else resolve(values);
         };
         const timer = setTimeout(() => finish(new Error("翻译超时，请检查网络或更换服务")), 30000);
         legacyRequests.set(group, () => finish(new Error("已取消翻译")));
-        chrome.runtime.sendMessage({ action: "translateText", translationService: service, sourceLanguage: "auto", targetLanguage: language, sourceArray: [text] }, values => {
+        chrome.runtime.sendMessage({ action: "translateText", translationService: service, sourceLanguage: "auto", targetLanguage: language, sourceArray: texts }, values => {
           const error = chrome.runtime.lastError;
-          if (error || !Array.isArray(values) || typeof values[0] !== "string" || !values[0].trim()) finish(new Error("翻译失败，请检查网络或更换服务"));
+          if (error || !Array.isArray(values) || values.length !== texts.length || values.some(value => typeof value !== "string" || !value.trim())) finish(new Error("翻译失败，请检查网络或更换服务"));
           else finish(null, values);
         });
       });
@@ -55,6 +61,7 @@ const twpInteractiveTranslator = (() => {
     }
     function closePopup() {
       selectionVersion++; cancelGroup("quick-selection");
+      dictionary.close();
       $("popup").hidden = true; $("trigger").hidden = true;
     }
     function readSelection() {
@@ -79,10 +86,14 @@ const twpInteractiveTranslator = (() => {
       $("service").textContent = `${{ bing: "微软翻译", google: "谷歌翻译", yandex: "Yandex", openai: "AI · 自定义模型" }[pageTranslator.getService()] || "翻译"} → ${twpLang.codeToLanguage(twpConfig.get("targetLanguage"))}`;
       cancelGroup("quick-selection"); const version = ++selectionVersion;
       $("result").textContent = "正在翻译…"; popupAt(selection?.x || 12, selection?.y || 80);
+      if (selection?.text) void dictionary.show(selection.text);
       try {
         if (!selection?.text) throw new Error("先在网页正文中选中一段文字，再点击翻译。");
-        const translated = await translate(selection.text, "quick-selection");
+        const local = await dictionary.localTranslation(selection.text);
+        if (version !== selectionVersion || $("popup").hidden) return;
+        const translated = local || await translate(selection.text, "quick-selection");
         if (version !== selectionVersion) return;
+        if (local) $("service").textContent = `离线词典 → ${twpLang.codeToLanguage(twpConfig.get("targetLanguage"))}`;
         resultText = translated;
         $("result").textContent = resultText; $("copy").disabled = false;
       } catch (error) {
@@ -115,7 +126,7 @@ const twpInteractiveTranslator = (() => {
     $("trigger").onclick = () => void api.translateSelection();
     $("retry").onclick = () => void api.translateSelection(selection?.text);
     $("close").onclick = closePopup;
-    $("cancel").onclick = () => { selectionVersion++; cancelGroup("quick-selection"); $("result").textContent = "已取消翻译"; $("cancel").hidden = true; $("retry").hidden = false; };
+    $("cancel").onclick = () => { selectionVersion++; cancelGroup("quick-selection"); dictionary.close(); $("result").textContent = "已取消翻译"; $("cancel").hidden = true; $("retry").hidden = false; };
     $("copy").onclick = async () => { try { await navigator.clipboard.writeText(resultText); $("copy").textContent = "已复制"; } catch { $("copy").textContent = "请选中译文复制"; } };
 
     function valid(record) { return bilingualTranslator.unchanged(record.piece); }

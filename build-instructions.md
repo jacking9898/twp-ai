@@ -38,6 +38,8 @@ Source ZIP 保留可编辑源码、依赖锁文件、构建工具、测试与许
 
 默认将 source map 留在安装包内，不引用上游的 source map 服务器。旧命令 `npm run build:local-sourcemaps` 仍可用，与普通 build 的 source map 策略相同。构建没有自托管更新地址，也不会上传或自动发布。
 
+完整离线英汉词库随源码和安装包分发，无需首次联网下载。`src/data/dictionary/manifest.json` 记录 3,402,564 条记录及每片校验和。更新数据时可用 Python 运行独立转换脚本；普通构建只复制现有索引。来源和重建命令见 [离线词典说明](docs/offline-dictionary.md)。
+
 ## 测试
 
 ```sh

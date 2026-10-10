@@ -26,6 +26,8 @@ importScripts("/lib/i18n.js");
 importScripts("/background/translationCache.js");
 importScripts("/background/aiService.bundle.js");
 importScripts("/background/translationService.js");
+importScripts("/background/offlineDictionary.js");
+importScripts("/background/dictionary.js");
 importScripts("/background/sidePanel.js");
 importScripts("/background/imageCapture.js");
 importScripts("/lib/videoSubtitles.js");

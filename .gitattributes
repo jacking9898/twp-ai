@@ -1,0 +1,2 @@
+# Keep packaged dictionary bytes identical to the manifest SHA-256 checksums.
+src/data/dictionary/* -text whitespace=cr-at-eol

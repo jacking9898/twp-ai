@@ -173,6 +173,7 @@
         "/contentScript/showOriginal.js",
         "/contentScript/bilingualTranslator.js",
         "/contentScript/pageTranslator.js",
+        "/contentScript/selectionDictionary.js",
         "/contentScript/interactiveTranslator.js",
         "/contentScript/translateSelected.js",
         "/contentScript/showTranslated.js"
@@ -208,6 +209,8 @@
       "/background/translationCache.js",
       "/background/aiService.bundle.js",
       "/background/translationService.js",
+      "/background/offlineDictionary.js",
+      "/background/dictionary.js",
       "/background/sidePanel.js",
       "/background/imageCapture.js",
       "/lib/videoSubtitles.js",

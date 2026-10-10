@@ -68,6 +68,11 @@ test("both installation ZIPs include licenses, source notice and every registere
     for (const file of scripts) assert.ok(files.has(file.replace(/^\//, "")), `Missing registered script ${file}`);
     for (const file of files.keys()) assert.ok(!/\.local-data|importedPresets|\.(pem|key|p12|pfx)$|(^|\/)\.env|profile-/.test(file), `Unexpected distribution file: ${file}`);
     assert.ok(files.has("lib/builtinPresets.js"));
+    const dictionary = JSON.parse(files.get("data/dictionary/manifest.json"));
+    assert.equal(dictionary.stats.rows, 3402564);
+    for (const shard of Object.keys(dictionary.shards)) assert.ok(files.has(`data/dictionary/${shard}`), `Missing offline dictionary shard: ${shard}`);
+    assert.ok(files.has("data/dictionary/LICENSE.txt"));
+    assert.ok(files.has("background/offlineDictionary.js"));
     assert.ok(files.has("background/localVoice.js"));
     assert.ok(files.has("contentScript/videoDubbing.js"));
     assert.ok(files.has("options/pdfTypeset.js"));
