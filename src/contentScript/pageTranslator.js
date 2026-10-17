@@ -408,6 +408,9 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
   let originalTabLanguage = "und";
   let currentPageLanguage = "und";
   let pageLanguageState = "original";
+  // Both renderers report "translated". That status must never authorize
+  // replacement-mode observers or writes while a bilingual session owns the page.
+  let replacementModeActive = false;
   let currentSourceLanguage = "auto";
   let currentTargetLanguage = twpConfig.get("targetLanguage");
   let currentPageTranslatorService = twpConfig.get("pageTranslatorService");
@@ -429,6 +432,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
 
   function translateNewNodes() {
     try {
+      if (!replacementModeActive) return;
       newNodes.forEach((nn) => {
         if (removedNodes.indexOf(nn) != -1) return;
 
@@ -458,6 +462,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
   }
 
   const mutationObserver = new MutationObserver(function (mutations) {
+    if (!replacementModeActive) return;
     const piecesToTranslate = [];
 
     mutations.forEach((mutation) => {
@@ -487,7 +492,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
   function enableMutatinObserver() {
     disableMutatinObserver();
 
-    if (twpConfig.get("translateDynamicallyCreatedContent") == "yes") {
+    if (replacementModeActive && twpConfig.get("translateDynamicallyCreatedContent") == "yes") {
       translateNewNodesTimerHandler = setInterval(translateNewNodes, 2000);
       mutationObserver.observe(document.body, {
         childList: true,
@@ -530,7 +535,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
       pageIsVisible = false;
     }
 
-    if (pageIsVisible && pageLanguageState === "translated") {
+    if (replacementModeActive && pageIsVisible && pageLanguageState === "translated") {
       enableMutatinObserver();
     } else {
       disableMutatinObserver();
@@ -851,6 +856,10 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
   }
 
   function translateTextContent(node, parentNode, text, toRestore) {
+    // Dictionary recovery may await another provider request after the initial
+    // response. Recheck ownership at the actual write, including source edits.
+    if (!replacementModeActive || toRestore.generation !== fooCount ||
+        !node.isConnected || node.textContent !== toRestore.originalText) return;
     toRestore.translatedText = text;
 
     if (location.hostname === "pdf.translatewebpages.org") {
@@ -906,6 +915,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
             }
 
             const toRestore = {
+              generation: fooCount,
               node: nodes[j],
               original: originalTextNode,
               originalText: originalTextNode.textContent,
@@ -927,7 +937,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
               // results = `${originalText.match(/^\s*/)[0]}${results.trim()}${
               //   originalText.match(/\s*$/)[0]
               // }`;
-              translateTextContent(nodes[j], parentNode, results, toRestore);
+              translateTextContent(toRestore.node, parentNode, results, toRestore);
             });
           }
         }
@@ -947,6 +957,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
             }
 
             const toRestore = {
+              generation: fooCount,
               node: nodes[j],
               original: originalTextNode,
               originalText: originalTextNode.textContent,
@@ -967,7 +978,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
               // results = `${originalText.match(/^\s*/)[0]}${results.trim()}${
               //   originalText.match(/\s*$/)[0]
               // }`;
-              translateTextContent(nodes[j], parentNode, results, toRestore);
+              translateTextContent(toRestore.node, parentNode, results, toRestore);
             });
           }
         }
@@ -986,7 +997,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
 
   function translationRoutine() {
     try {
-      if (piecesToTranslate && pageIsVisible) {
+      if (replacementModeActive && piecesToTranslate && pageIsVisible) {
         (function () {
           if (piecesToTranslate.length < 1) return;
           const innerHeight = window.innerHeight;
@@ -1068,7 +1079,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
               dontSortResults
             ).then((results) => {
               if (
-                pageLanguageState === "translated" &&
+                replacementModeActive && pageLanguageState === "translated" &&
                 currentFooCount === fooCount
               ) {
                 translateResults(piecesToTranslateNow, results);
@@ -1084,7 +1095,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
               attributesToTranslateNow.map((ati) => ati.original)
             ).then((results) => {
               if (
-                pageLanguageState === "translated" &&
+                replacementModeActive && pageLanguageState === "translated" &&
                 currentFooCount === fooCount
               ) {
                 translateAttributes(attributesToTranslateNow, results);
@@ -1122,7 +1133,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
       currentTargetLanguage,
       originalPageTitle
     ).then((result) => {
-      if (result && pageLanguageState === "translated" && currentFooCount === fooCount) {
+      if (result && replacementModeActive && pageLanguageState === "translated" && currentFooCount === fooCount) {
         document.title = result;
       }
     });
@@ -1154,6 +1165,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
     pageTranslator.lastError = "";
     const bilingual = (twpConfig.get("pageTranslationMode") === "bilingual" || currentPageTranslatorService === "openai") &&
       location.hostname !== "pdf.translatewebpages.org";
+    replacementModeActive = !bilingual;
     if (!bilingual) showOriginal.enable();
     chrome.runtime.sendMessage(
       { action: "removeTranslationsWithError" },
@@ -1235,6 +1247,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
       void twpAIClient.call({action: "aiForgetPage"}).catch(() => {});
     }
     fooCount++;
+    replacementModeActive = false;
     piecesToTranslate = [];
     bilingualTranslator.stop();
     if (typeof twpAIClient !== "undefined") twpAIClient.cancel("page");

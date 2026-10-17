@@ -91,6 +91,32 @@ module.exports = async ({ context, worker, id, page, calls, configure }) => {
   expect(await page.evaluate(() => document.getElementById("hover-math-original") === hoverOriginalMath)).toBe(true);
   await page.keyboard.press("Control");
   await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  // Source annotations must survive the real hover -> AI protection -> render
+  // path, including attribute-only source edits and cancellation while pending.
+  await page.locator("#first").evaluate(element => {
+    element.innerHTML = 'Embedding dimensions: 1024.<sup><a href="#second">1</a></sup> Compare H<sub>2</sub>O.';
+  });
+  await page.locator("#first").hover({position:{x:4,y:4}});
+  await page.keyboard.press("Control");
+  const annotationTranslation = page.locator("#first > [data-twp-interactive=translated]");
+  await expect(annotationTranslation.locator("sup a")).toHaveAttribute("href", "#second");
+  await expect(annotationTranslation.locator("sub")).toHaveText("2");
+  await page.locator("#first > sup a").evaluate(link => link.setAttribute("href", "#first"));
+  await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  await page.keyboard.press("Control");
+  await expect(annotationTranslation.locator("sup a")).toHaveAttribute("href", "#first");
+  await page.keyboard.press("Control");
+  await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  await page.locator("#first").evaluate(element => { element.firstChild.textContent = "Delayed annotation: 2048."; });
+  configure({ delay: 1000 });
+  const beforeAnnotation = calls.length;
+  await page.keyboard.press("Control");
+  await expect.poll(() => calls.length).toBeGreaterThan(beforeAnnotation);
+  await page.locator("#first > sup a").evaluate(link => link.setAttribute("href", "#second"));
+  await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  await page.waitForTimeout(1200);
+  await expect(page.locator("#first [data-twp-interactive]")).toHaveCount(0);
+  configure({ delay: 0 });
   await page.locator("#first").evaluate((element, html) => { element.innerHTML = html; }, firstMarkup);
   await page.locator("#first").hover();
   const beforeChord = calls.length;

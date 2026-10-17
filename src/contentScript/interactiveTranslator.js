@@ -158,7 +158,8 @@ const twpInteractiveTranslator = (() => {
         if (records.size >= 80) { const oldest = records.keys().next().value; restoreRecord(records.get(oldest)); records.delete(oldest); }
         record = { piece, version: 0, group: `hover-${crypto.randomUUID()}`, state: "original", element: null };
         records.set(key, record);
-        observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+        observer.observe(document.body, { childList: true, characterData: true, subtree: true,
+          attributes: true, attributeFilter: ["hidden", "style", "class", "translate", "contenteditable", "dir", "href"] });
       }
       const version = ++record.version; record.state = "loading";
       record.element?.remove();

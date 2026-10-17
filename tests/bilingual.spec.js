@@ -169,6 +169,86 @@ test("dynamic additions, edits and removals do not duplicate translations", asyn
   expect(await page.evaluate(() => testRequests.length)).toBe(count);
 });
 
+test("returning to a bilingual tab never starts replacement translation for dynamic paragraphs", async ({ page }) => {
+  await setup(page);
+  await translate(page);
+  await expect.poll(() => page.evaluate(() => pageTranslator.getState())).toBe("translated");
+  await page.evaluate(() => {
+    // Follow the same handler as switching away from and back to the tab.
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    const list = document.createElement("ul");
+    list.innerHTML = '<li id="weights"><strong>Number of weights.</strong> More inputs need more weights.</li>';
+    document.querySelector("main").prepend(list);
+    window.dynamicOriginal = document.querySelector("#weights").innerHTML;
+  });
+  await expect(page.locator("#weights > [data-twp-bilingual]")).toHaveCount(1);
+  // The old replacement observer drains its dynamic queue every two seconds.
+  await page.waitForTimeout(2800);
+  expect(await page.locator("#weights").evaluate(element => {
+    const copy = element.cloneNode(true);
+    copy.querySelectorAll("[data-twp-bilingual]").forEach(node => node.remove());
+    return copy.innerHTML;
+  })).toBe(await page.evaluate(() => window.dynamicOriginal));
+  await expect(page.locator("#weights > [data-twp-bilingual]")).toHaveCount(1);
+  await expect(page.locator("#weights > [data-twp-bilingual]")).toHaveText(
+    "中文：Number of weights. More inputs need more weights.");
+  await page.evaluate(() => pageTranslator.restorePage());
+  expect(await page.locator("#weights").innerHTML()).toBe(await page.evaluate(() => window.dynamicOriginal));
+});
+
+test("replacement mode still translates dynamic content after returning to the tab", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => twpConfig.set("pageTranslationMode", "translated"));
+  await translate(page);
+  await expect(page.locator("#intro")).toContainText("中文：Hello");
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    const paragraph = document.createElement("p");
+    paragraph.id = "replacement-dynamic";
+    paragraph.textContent = "New replacement paragraph.";
+    document.querySelector("main").prepend(paragraph);
+  });
+  await expect(page.locator("#replacement-dynamic")).toHaveText("中文：New replacement paragraph.");
+  await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
+  await page.evaluate(() => pageTranslator.restorePage());
+  await expect(page.locator("#replacement-dynamic")).toHaveText("New replacement paragraph.");
+});
+
+for (const dontSortResults of ["yes", "no"]) {
+  test(`late dictionary recovery cannot replace source after switching to bilingual (${dontSortResults})`, async ({ page }) => {
+    await setup(page);
+    await page.evaluate(value => {
+      twpConfig.set("dontSortResults", value);
+      twpConfig.set("pageTranslationMode", "translated");
+      // Hold the async dictionary/provider recovery after translateHTML returns.
+      const original = handleCustomWords;
+      window.pendingRecoveries = [];
+      handleCustomWords = (...args) => new Promise(resolve => {
+        pendingRecoveries.push(async () => resolve(await original(...args)));
+      });
+      window.restoreDictionaryHandler = () => { handleCustomWords = original; };
+    }, dontSortResults);
+    await translate(page);
+    await page.waitForFunction(() => pendingRecoveries.length > 0);
+    await page.evaluate(() => {
+      restoreDictionaryHandler();
+      twpConfig.set("pageTranslationMode", "bilingual");
+    });
+    await expect(page.locator("#intro > [data-twp-bilingual]")).toHaveCount(1);
+    await page.evaluate(async () => {
+      await Promise.all(pendingRecoveries.map(resolve => resolve()));
+    });
+    await expect(page.locator("#link")).toHaveText("world");
+    await expect(page.locator("#intro > [data-twp-bilingual]")).toHaveText("中文：Hello world, this is a bilingual test.");
+    await page.evaluate(() => pageTranslator.restorePage());
+    await expect(page.locator("#intro")).toHaveText("Hello world, this is a bilingual test.");
+    await expect(page).toHaveTitle("Original title");
+  });
+}
+
 test("offscreen paragraphs translate after scrolling into view", async ({ page }) => {
   await setup(page, fixture.replace("</main>", '<div style="height: 2500px" translate="no"></div><p id="tail">An offscreen paragraph.</p></main>'));
   await translate(page);
@@ -188,6 +268,108 @@ test("translation text cannot create executable markup", async ({ page }) => {
   await expect(page.locator("#intro [data-twp-bilingual]")).toContainText("<img");
   await expect(page.locator("#intro img")).toHaveCount(0);
   expect(await page.evaluate(() => window.xssTriggered)).toBe(false);
+});
+
+test("source footnotes and subscripts survive the full plain-text translation round trip", async ({ page }) => {
+  const html = fixture.replace("<main>", `<main>
+    <p id="embedding-footnote">In the real world, embedding spaces are <em>d</em>-dimensional.
+      (For word embeddings, <em>d</em> is often 256, 512, or 1024.<sup id="fnref1"><a href="#fn1" rel="footnote">1</a></sup>)</p>
+    <p id="exponents">Compare x<sup>2</sup>, x<sup>3</sup>, H<sub>2</sub>O and <code translate="no">meal</code>.<sup><a href="#fn2">2</a></sup></p>
+    <p id="fn1">First footnote. <a href="#fnref1">Return to reference</a></p><p id="fn2">Second footnote.</p>`);
+  await setup(page, html);
+  const originals = page.locator("#embedding-footnote, #exponents, #fn1, #fn2");
+  const before = await originals.evaluateAll(nodes => nodes.map(node => node.innerHTML));
+  await page.evaluate(() => {
+    window.originalFootnote = document.getElementById("fnref1");
+    window.originalReference = originalFootnote.firstChild;
+    window.referenceClicks = 0;
+    originalReference.addEventListener("click", () => referenceClicks++);
+  });
+  // The provider mock only translates text; it never invents HTML markup.
+  await translate(page);
+  const translated = page.locator("#embedding-footnote > [data-twp-bilingual]");
+  await expect(translated).toHaveCount(1);
+  await expect(translated.locator("sup")).toHaveText("1");
+  await expect(translated.locator("sup a")).toHaveAttribute("href", "#fn1");
+  await expect(page.locator("#fnref1")).toHaveCount(1);
+  await expect(page.locator("#exponents > [data-twp-bilingual] sup")).toHaveText(["2", "3", "2"]);
+  await expect(page.locator("#exponents > [data-twp-bilingual] sub")).toHaveText("2");
+  await expect(page.locator("#exponents > [data-twp-bilingual] code")).toHaveText("meal");
+  expect(await translated.textContent()).not.toContain("__TWP_INLINE_");
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({width, height: 1000});
+    expect(await translated.locator("sup").evaluate(sup => {
+      const previous = sup.previousSibling;
+      const range = document.createRange();
+      range.setStart(previous, previous.textContent.length - 1);
+      range.setEnd(previous, previous.textContent.length);
+      return getComputedStyle(sup).verticalAlign === "super" && sup.getBoundingClientRect().top < range.getBoundingClientRect().top;
+    })).toBe(true);
+    await page.locator("#embedding-footnote").screenshot({path:`build/bilingual-source-sup-${width}.png`});
+  }
+  await translated.locator("sup a").click();
+  await expect(page).toHaveURL(/#fn1$/);
+  await page.locator("#fnref1 a").click();
+  expect(await page.evaluate(() => referenceClicks === 1 && originalFootnote === document.getElementById("fnref1") &&
+    originalReference === document.querySelector("#fnref1 a"))).toBe(true);
+  await page.evaluate(() => pageTranslator.restorePage());
+  expect(await originals.evaluateAll(nodes => nodes.map(node => node.innerHTML))).toEqual(before);
+  // Show an actual Chinese sentence while carrying the annotation from the
+  // outgoing request, rather than hard-coding <sup> into the fake response.
+  await page.evaluate(() => bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+    translate: async source => source.map(([text]) => [text.startsWith("In the real world")
+      ? "在现实世界中，嵌入空间是 d 维的。（对于词嵌入，d 通常为 256、512 或 1024。" + text.match(/`__TWP_INLINE_\d+__`/)[0] + "）"
+      : "译文：" + text]) }));
+  await expect(translated.locator("sup a")).toHaveText("1");
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({width, height:1000});
+    await page.locator("#embedding-footnote").screenshot({path:`build/bilingual-source-sup-${width}.png`});
+  }
+  await page.evaluate(() => bilingualTranslator.stop());
+  expect(await originals.evaluateAll(nodes => nodes.map(node => node.innerHTML))).toEqual(before);
+});
+
+test("protected source annotations keep nested formatting and only safe footnote links", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><p id="safe-annotations">Reference
+    <a id="outer-link" href="#details"><sup id="outer-sup">2</sup></a> and x<sup id="nested-sup" onclick="window.annotationExecuted=true"><strong>n<sub>1</sub></strong><script>/* ignored */</script></sup>,
+    with unsafe <sup><a href="javascript:window.annotationExecuted=true" onclick="window.annotationExecuted=true">3</a></sup>.</p>`));
+  await page.evaluate(() => { window.annotationExecuted = false; });
+  await translate(page);
+  const translation = page.locator("#safe-annotations > [data-twp-bilingual]");
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator('a[href="#details"] > sup')).toHaveText("2");
+  await expect(translation.locator("sup strong sub")).toHaveText("1");
+  await expect(translation.locator("[id], [onclick], script, [href^='javascript:']")).toHaveCount(0);
+  await translation.locator('a[href="#details"]').click();
+  await expect(page).toHaveURL(/#details$/);
+  await translation.locator("a").last().click();
+  expect(await page.evaluate(() => annotationExecuted)).toBe(false);
+});
+
+test("annotation edits invalidate delayed page results and hover snapshots", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", '<main><p id="annotation-edit">Word embeddings use 1024 dimensions.<sup><a href="#details">1</a></sup></p>'));
+  await page.evaluate(() => { window.translationDelay = 500; });
+  await translate(page);
+  await page.waitForFunction(() => testRequests.some(request => request.sourceArray2d.flat().some(text => text.startsWith("Word embeddings"))));
+  await page.evaluate(() => {
+    window.oldAnnotation = bilingualTranslator.paragraphAt(document.getElementById("annotation-edit"), 0, 0);
+    document.querySelector("#annotation-edit sup a").setAttribute("href", "#intro");
+  });
+  expect(await page.evaluate(() => bilingualTranslator.unchanged(oldAnnotation))).toBe(false);
+  const translation = page.locator("#annotation-edit > [data-twp-bilingual]");
+  await expect(translation.locator("sup a")).toHaveAttribute("href", "#intro");
+  await page.evaluate(() => { document.querySelector("#annotation-edit > sup a").textContent = "2"; });
+  await expect(translation.locator("sup")).toHaveText("2");
+  await expect(translation).toHaveCount(1);
+  await page.evaluate(() => {
+    pageTranslator.restorePage();
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("annotation-edit"), 0, 0);
+    bilingualTranslator.renderParagraph(piece, "译文：" + bilingualTranslator.textForTranslation(piece), "zh-CN");
+  });
+  await expect(translation.locator("sup a")).toHaveAttribute("href", "#intro");
+  await expect(translation.locator("sup")).toHaveText("2");
+  await translation.evaluate(node => node.remove());
+  await expect(page.locator("#annotation-edit")).toHaveText("Word embeddings use 1024 dimensions.2");
 });
 
 test("provider footnote markup renders as superscript without changing the original", async ({ page }) => {
@@ -503,6 +685,163 @@ test("exercise lists keep inline code and inline-block links in one bilingual se
     originalRelu === document.getElementById("relu"))).toBe(true);
   await page.evaluate(() => pageTranslator.restorePage());
   expect(await page.locator("#exercise").innerHTML()).toBe(before);
+});
+
+// The live Google ML course uses <code translate="no" dir="ltr">meal</code>.
+// Keep the real paragraph structure here: plain <code> fixtures missed this split.
+const protectedCodeFixture = `<!doctype html><html lang="en"><head><title>Protected inline code</title>
+<style>body {font:16px/24px Arial,sans-serif; margin:32px auto; padding:0 24px; max-width:1000px}
+p {margin:16px 0} code {background:#f1f3f4; font:14px/20px monospace; padding:1px 3px}
+a {color:#1a73e8} figcaption {text-align:center; font-style:italic} li {margin:12px 0}</style>
+</head><body><main>
+<figcaption><strong>Figure 1.</strong> Sampling of meal items included in the food dataset.</figcaption>
+<p id="meal">You create a <code translate="no" dir="ltr">meal</code> feature that contains a
+<a id="encoding-link" href="#encoding"><strong>one-hot encoded</strong></a>
+representation of each of the meal items in the dataset.
+<a href="#encoder"><strong>Encoding</strong></a> refers to the process of
+choosing an initial numerical representation of data to train the model on.</p>
+<ul><li id="protected-list">Use <code class="notranslate">input</code>,
+<code translate="no" style="display:inline-block">0.00</code>, and <kbd translate="no">Enter</kbd> together.</li></ul>
+<p id="protected-edges"><code translate="no">first</code> precedes <strong>the final value</strong> <code translate="no">last</code></p>
+<p id="excluded-paragraph" translate="no">EXCLUDED_PARAGRAPH <code>private_code</code></p>
+<div class="notranslate"><p>EXCLUDED_CONTAINER <code>private_nested</code></p></div>
+<pre><code translate="no">EXCLUDED_BLOCK</code></pre>
+<code translate="no" style="display:block">EXCLUDED_BLOCK_CODE</code>
+<p><code translate="no">EXCLUDED_STANDALONE</code></p>
+</main></body></html>`;
+
+for (const width of [1280, 768, 390]) {
+  test(`protected inline code preserves whole-sentence layout at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1200 });
+    await setup(page, protectedCodeFixture);
+    const originalHTML = await page.locator("main").innerHTML();
+    // Measure every original text run, including wrapping, not just counts.
+    const sourceGeometry = () => [...document.querySelectorAll("#meal, #protected-list, #protected-edges")].map(element => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const rects = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.parentElement.closest("[data-twp-bilingual]")) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const origin = element.getBoundingClientRect();
+        rects.push(...[...range.getClientRects()].map(rect => ({
+          x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height,
+        })));
+      }
+      return rects;
+    });
+    const before = await page.evaluate(sourceGeometry);
+    await page.evaluate(() => {
+      window.mealCode = document.querySelector("#meal code");
+      window.encodingLink = document.getElementById("encoding-link");
+      window.encodingClicks = 0;
+      encodingLink.addEventListener("click", () => encodingClicks++);
+    });
+    await translate(page);
+    await expect(page.locator("#meal > [data-twp-bilingual]")).toHaveCount(1);
+    await expect(page.locator("#protected-list > [data-twp-bilingual]")).toHaveCount(1);
+    await expect(page.locator("#protected-edges > [data-twp-bilingual]")).toHaveCount(1);
+    expect(await page.evaluate(sourceGeometry)).toEqual(before);
+    const requests = await page.evaluate(() => testRequests.flatMap(request => request.sourceArray2d.flat()));
+    expect(requests).toContain("You create a `meal` feature that contains a one-hot encoded representation of each of the meal items in the dataset. Encoding refers to the process of choosing an initial numerical representation of data to train the model on.");
+    expect(requests.join(" ")).not.toMatch(/EXCLUDED_|private_code|private_nested/);
+    await expect(page.locator("#meal > [data-twp-bilingual] code")).toHaveText("meal");
+    await expect(page.locator("#meal > [data-twp-bilingual] code")).toHaveAttribute("dir", "ltr");
+    await expect(page.locator("#protected-list > [data-twp-bilingual] code")).toHaveCount(2);
+    await expect(page.locator("#protected-list > [data-twp-bilingual] kbd")).toHaveText("Enter");
+    const layout = await page.locator("#meal").evaluate(element => {
+      const translated = element.querySelector("[data-twp-bilingual]");
+      const range = document.createRange();
+      range.setStart(element, 0); range.setEndBefore(translated);
+      return { below: translated.getBoundingClientRect().top >= range.getBoundingClientRect().bottom,
+        last: translated === element.lastChild,
+        overflow: document.documentElement.scrollWidth > innerWidth };
+    });
+    expect(layout).toEqual({ below: true, last: true, overflow: false });
+    await page.screenshot({ path: `build/bilingual-protected-code-${width}.png`, fullPage: true });
+    await page.locator("#encoding-link").click();
+    expect(await page.evaluate(() => encodingClicks === 1 && mealCode === document.querySelector("#meal code") &&
+      encodingLink === document.getElementById("encoding-link"))).toBe(true);
+    // Repeated translate/restore and a rescan must preserve the same original DOM.
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => pageTranslator.restorePage());
+      expect(await page.locator("main").innerHTML()).toBe(originalHTML);
+      expect(await page.evaluate(sourceGeometry)).toEqual(before);
+      await translate(page);
+      await expect(page.locator("#meal > [data-twp-bilingual]")).toHaveCount(1);
+    }
+    await page.evaluate(() => document.querySelector("figcaption").firstChild.textContent = "Figure one.");
+    await expect(page.locator("figcaption > [data-twp-bilingual]")).toContainText("Figure one.");
+    await expect(page.locator("#meal > [data-twp-bilingual]")).toHaveCount(1);
+    expect(await page.evaluate(sourceGeometry)).toEqual(before);
+  });
+}
+
+test("Chinese translation of the Google meal paragraph stays below the complete original", async ({ page }) => {
+  await setup(page, protectedCodeFixture);
+  await page.evaluate(() => bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+    translate: async source => source.map(([text]) => [text.startsWith("You create a")
+      ? "你创建了一个 `meal` 特征，其中包含数据集中每种餐食的独热编码表示。编码是指选择数据的初始数值表示，以用于训练模型。"
+      : `译文：${text}`]) }));
+  const translation = page.locator("#meal > [data-twp-bilingual]");
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("code")).toHaveText("meal");
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 1200 });
+    expect(await page.locator("#meal").evaluate(element => {
+      const translated = element.querySelector("[data-twp-bilingual]");
+      const range = document.createRange(); range.setStart(element, 0); range.setEndBefore(translated);
+      return range.getBoundingClientRect().bottom <= translated.getBoundingClientRect().top &&
+        element.lastChild === translated;
+    })).toBe(true);
+    await page.locator("#meal").screenshot({ path: `build/bilingual-meal-fixed-${width}.png` });
+  }
+});
+
+test("protected code and inline math stay in one sentence for page and hover translation", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><p id="mixed-literals">Compare
+    <code translate="no" dir="ltr">meal</code> with <math><mi>x</mi><mo>+</mo><mn>1</mn></math>
+    and press <kbd class="notranslate">Enter</kbd>.</p>`));
+  const original = await page.locator("#mixed-literals").innerHTML();
+  await translate(page);
+  const translation = page.locator("#mixed-literals > [data-twp-bilingual]");
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("code")).toHaveText("meal");
+  await expect(translation.locator("math")).toHaveCount(1);
+  await expect(translation.locator("kbd")).toHaveText("Enter");
+  await page.evaluate(() => {
+    pageTranslator.restorePage();
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("mixed-literals"), 0, 0);
+    bilingualTranslator.renderParagraph(piece, "译文：" + bilingualTranslator.textForTranslation(piece), "zh-CN");
+  });
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("code")).toHaveText("meal");
+  await expect(translation.locator("math")).toHaveCount(1);
+  await expect(translation.locator("kbd")).toHaveText("Enter");
+  await translation.evaluate(element => element.remove());
+  expect(await page.locator("#mixed-literals").innerHTML()).toBe(original);
+});
+
+test("protected code attribute changes invalidate pending page and hover results", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", '<main><p id="protected-edit">Keep <code translate="no" dir="ltr">meal</code> intact.</p>'));
+  await page.evaluate(() => { window.translationDelay = 500; });
+  await translate(page);
+  await page.waitForFunction(() => testRequests.some(request => request.sourceArray2d.flat().includes("Keep `meal` intact.")));
+  await page.evaluate(() => {
+    window.oldPiece = bilingualTranslator.paragraphAt(document.getElementById("protected-edit"), 0, 0);
+    document.querySelector("#protected-edit code").dir = "rtl";
+  });
+  expect(await page.evaluate(() => bilingualTranslator.unchanged(oldPiece))).toBe(false);
+  const translation = page.locator("#protected-edit > [data-twp-bilingual]");
+  await expect(translation).toHaveCount(1);
+  await expect(translation.locator("code")).toHaveAttribute("dir", "rtl");
+  await page.evaluate(() => {
+    document.querySelector("#protected-edit code").textContent = "dish";
+  });
+  await expect(translation.locator("code")).toHaveText("dish");
+  await expect(translation).toHaveCount(1);
+  await page.evaluate(() => pageTranslator.restorePage());
+  await expect(page.locator("#protected-edit")).toHaveText("Keep dish intact.");
 });
 
 test("inline code edits invalidate pending responses and single paragraph rendering preserves literals", async ({ page }) => {

@@ -67,7 +67,7 @@ const fs = require("node:fs");
     });
     await context.route("https://bilingual.test/**", route => route.fulfill({
       contentType: "text/html",
-      body: '<html><head><title>Original title</title></head><body style="padding:40px"><p id="paragraph">Original text with <a href="#">a working link</a>.</p><ul><li id="inline-code">Input values <code>0.00</code>, <code>0.00</code>, and <code>0.00</code></li></ul></body></html>',
+      body: '<html><head><title>Original title</title></head><body style="padding:40px"><p id="paragraph">Original text with <a href="#">a working link</a>.</p><ul><li id="inline-code">Input values <code>0.00</code>, <code translate="no" dir="ltr">0.00</code>, and <code class="notranslate">0.00</code></li></ul><p id="meal">You create a <code translate="no" dir="ltr">meal</code> feature that contains a <a href="#encoding"><strong>one-hot encoded</strong></a> representation of each of the meal items in the dataset.</p></body></html>',
     }));
     const page = await context.newPage();
     page.on("pageerror", error => errors.push(error.message));
@@ -85,10 +85,43 @@ const fs = require("node:fs");
     await expect(page.locator("#inline-code > [data-twp-bilingual]")).toHaveCount(1);
     await expect(page.locator("#inline-code > [data-twp-bilingual] code")).toHaveCount(3);
     await expect(page.locator("#inline-code > [data-twp-bilingual]")).toHaveText("中文：Input values 0.00, 0.00, and 0.00");
+    await page.locator("#meal").scrollIntoViewIfNeeded();
+    await expect(page.locator("#meal > [data-twp-bilingual]")).toHaveCount(1);
+    await expect(page.locator("#meal > [data-twp-bilingual] code")).toHaveText("meal");
+    await expect(page.locator("#meal > [data-twp-bilingual]")).toHaveText("中文：You create a meal feature that contains a one-hot encoded representation of each of the meal items in the dataset.");
+    await page.evaluate(() => {
+      const paragraph = document.createElement("p");
+      paragraph.id = "source-footnote";
+      paragraph.innerHTML = 'Word embeddings use 1024 dimensions.<sup id="original-note"><a href="#paragraph">1</a></sup> Compare x<sup>2</sup> and H<sub>2</sub>O.';
+      document.body.prepend(paragraph);
+      window.scrollTo(0, 0);
+    });
+    await expect(page.locator("#source-footnote > [data-twp-bilingual] sup")).toHaveText(["1", "2"]);
+    await expect(page.locator("#source-footnote > [data-twp-bilingual] sub")).toHaveText("2");
+    await expect(page.locator("#source-footnote > [data-twp-bilingual] sup a")).toHaveAttribute("href", "#paragraph");
+    await expect(page.locator("#original-note")).toHaveCount(1);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    // Returning to a completed bilingual tab used to enable the replacement
+    // observer. A later page update then overwrote the English source.
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      const list = document.createElement("ul");
+      list.innerHTML = '<li id="dynamic-weights"><strong>Number of weights.</strong> More inputs need more weights.</li>';
+      document.body.prepend(list);
+    });
+    await expect(page.locator("#dynamic-weights > [data-twp-bilingual]")).toHaveCount(1);
+    await page.waitForTimeout(2800);
+    await expect(page.locator("#dynamic-weights > strong")).toHaveText("Number of weights.");
+    await expect(page.locator("#dynamic-weights > [data-twp-bilingual]")).toHaveText("中文：Number of weights. More inputs need more weights.");
+    await expect(page.locator("#dynamic-weights > [data-twp-bilingual]")).toHaveCount(1);
     await worker.evaluate(tab => chrome.tabs.sendMessage(tab, { action: "restorePage" }), tabId);
     await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
     await expect(page.locator("#paragraph")).toHaveText("Original text with a working link.");
     await expect(page.locator("#inline-code")).toHaveText("Input values 0.00, 0.00, and 0.00");
+    await expect(page.locator("#meal")).toHaveText("You create a meal feature that contains a one-hot encoded representation of each of the meal items in the dataset.");
+    await expect(page.locator("#dynamic-weights")).toHaveText("Number of weights. More inputs need more weights.");
+    await expect(page.locator("#source-footnote > sup")).toHaveText(["1", "2"]);
+    await expect(page.locator("#source-footnote > sub")).toHaveText("2");
 
     // The popup must reflect provider failures while it is open, and recover
     // when a subsequent translation succeeds.

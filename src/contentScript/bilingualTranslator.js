@@ -160,11 +160,26 @@ const bilingualTranslator = (() => {
               math.push({ node: child, text: mathSource(child), html: child.outerHTML });
               continue;
             }
+            // Plain textContent would turn 1024.<sup>1</sup> into 1024.1
+            // before the provider even sees it. Carry annotations as protected
+            // inline literals and rebuild their safe source markup on return.
+            const annotation = child.matches("sup, sub") || child.matches("a[href]") &&
+              child.querySelector("sup, sub") && [...child.childNodes].every(node =>
+                node.nodeType === Node.TEXT_NODE ? !node.textContent.trim() :
+                node.nodeType === Node.ELEMENT_NODE && node.matches("sup, sub"));
+            if (annotation && !isExcluded(child) &&
+                ["inline", "inline-block", "contents"].includes(style.display)) {
+              nodes.push(child);
+              literals.push({ node: child, text: `\`${literalPrefix}${literals.length}__\``, html: child.outerHTML });
+              continue;
+            }
             // Inline code/keys belong to the surrounding sentence. Protect
             // their contents without flushing prose or translating them alone.
-            // Explicit website exclusions still take precedence.
+            // A code/key's own translate="no" or .notranslate means preserve
+            // the literal, not split the sentence. Excluded ancestor regions
+            // are already skipped by walk()/isExcluded(root).
             if (child.matches("code, kbd") && ["inline", "inline-block", "contents"].includes(style.display) &&
-                !child.closest('pre, [translate="no"], .notranslate, [contenteditable]:not([contenteditable="false"])') &&
+                !child.closest('pre, [contenteditable]:not([contenteditable="false"])') &&
                 !child.hidden && child.getAttribute("aria-hidden") !== "true") {
               nodes.push(child);
               const value = child.textContent;
@@ -255,7 +270,7 @@ const bilingualTranslator = (() => {
         "padding: 0 !important; border: 0 !important; font-size: .85em !important; " +
         "line-height: inherit !important; white-space: nowrap !important; vertical-align: baseline !important;"
       : "display: block !important; margin: .35em 0 .7em !important; " +
-      "padding-inline-start: .65em !important; border-inline-start: 2px solid #80808066 !important; " +
+      "padding: 0 !important; border: 0 !important; " +
       "font-size: .95em !important; line-height: 1.65 !important; " +
       "white-space: pre-wrap !important; user-select: text !important;";
     // Only explicit safe formatting and source formula clones become DOM nodes.
@@ -314,6 +329,24 @@ const bilingualTranslator = (() => {
     return new RegExp(escaped.join("|"), "g");
   }
 
+  function appendAnnotation(parent, source) {
+    // Rebuild source annotations without IDs, event handlers, styles or active
+    // content. Only same-page footnote links keep a destination.
+    for (const child of source.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        parent.append(document.createTextNode(child.textContent));
+      } else if (child.nodeType === Node.ELEMENT_NODE &&
+          (formattingTags.has(child.localName) || child.localName === "a")) {
+        const copy = document.createElement(child.localName);
+        if (child.localName === "a" && child.getAttribute("href")?.startsWith("#")) {
+          copy.setAttribute("href", child.getAttribute("href"));
+        }
+        appendAnnotation(copy, child);
+        parent.append(copy);
+      }
+    }
+  }
+
   function appendFormulaTranslation(element, record, text) {
     const formulas = new Map((record.math || []).map(item => [item.text, item.node]));
     const literals = new Map((record.literals || []).map(item => [item.text, item.node]));
@@ -326,7 +359,13 @@ const bilingualTranslator = (() => {
       if (literals.has(match[0])) {
         const source = literals.get(match[0]);
         const copy = document.createElement(source.localName);
-        copy.textContent = source.textContent;
+        if (source.matches("sup, sub, a")) appendAnnotation(copy, source);
+        else copy.textContent = source.textContent;
+        if (source.localName === "a" && source.getAttribute("href")?.startsWith("#")) {
+          copy.setAttribute("href", source.getAttribute("href"));
+        }
+        copy.setAttribute("translate", "no");
+        if (["ltr", "rtl", "auto"].includes(source.getAttribute("dir"))) copy.dir = source.getAttribute("dir");
         element.append(copy);
         offset = match.index + match[0].length;
         continue;
@@ -491,7 +530,7 @@ const bilingualTranslator = (() => {
     if (dynamicContent && document.body) {
       session.observer.observe(document.body, {
         childList: true, characterData: true, subtree: true, attributes: true,
-        attributeFilter: ["hidden", "style", "class", "translate", "contenteditable"],
+        attributeFilter: ["hidden", "style", "class", "translate", "contenteditable", "dir", "href"],
       });
     }
     window.addEventListener("scroll", session.onView, true);
