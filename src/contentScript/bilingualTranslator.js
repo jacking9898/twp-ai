@@ -133,10 +133,7 @@ const bilingualTranslator = (() => {
         while (nodes.length && !nodes[0].textContent.trim() && !math.some(item => item.node === nodes[0])) nodes.shift();
         while (nodes.length && !nodes[nodes.length - 1].textContent.trim() && !math.some(item => item.node === nodes[nodes.length - 1])) nodes.pop();
         if (nodes.length) {
-          let anchor = nodes[nodes.length - 1];
-          while (anchor.parentNode && anchor.parentNode !== container) {
-            anchor = anchor.parentNode;
-          }
+          const anchor = nodes[nodes.length - 1];
           // A standalone formula is not prose to translate.
           if (nodes.some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) {
             const links = [];
@@ -217,6 +214,24 @@ const bilingualTranslator = (() => {
       flush();
     }
     if (root && !isExcluded(root)) visit(root);
+    // An inline wrapper can contain several paragraphs separated by <br> or
+    // nested blocks. Never move an insertion point past another paragraph:
+    // inserting several translations after that same wrapper reverses them.
+    const owners = new WeakMap();
+    for (const piece of pieces) {
+      for (const node of piece.nodes) {
+        for (let parent = node.parentElement; parent && parent !== piece.container; parent = parent.parentElement) {
+          if (!owners.has(parent)) owners.set(parent, piece);
+          else if (owners.get(parent) !== piece) owners.set(parent, null);
+        }
+      }
+    }
+    for (const piece of pieces) {
+      while (piece.anchor.parentNode && piece.anchor.parentNode !== piece.container &&
+          owners.get(piece.anchor.parentNode) === piece) {
+        piece.anchor = piece.anchor.parentNode;
+      }
+    }
     return pieces;
   }
 

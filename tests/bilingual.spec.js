@@ -1135,3 +1135,42 @@ test("link changes invalidate pending translations and unsafe destinations stay 
   await expect(translation).not.toContainText("__TWP_INLINE_");
   await expect(translation).toContainText("this guide");
 });
+
+test("inline quiz headings with line breaks keep each translation below its own source", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><style>#quiz-heading {display:inline}</style>
+    <ol><li id="quiz-item"><h2 id="quiz-heading"><span>First question paragraph.</span><br><br>
+    <span>Second question paragraph.</span><br><br>Final question paragraph.</h2><section translate="no">Answers</section></li></ol>`));
+  const before = await page.locator("#quiz-item").innerHTML();
+  await translate(page);
+  const translations = page.locator("#quiz-heading > [data-twp-bilingual]");
+  await expect(translations).toHaveText([
+    "中文：First question paragraph.", "中文：Second question paragraph.", "中文：Final question paragraph.",
+  ]);
+  async function checkOrder() {
+    const positions = await page.locator("#quiz-heading").evaluate(element => {
+      const texts = [...element.childNodes].filter(node =>
+        node.nodeType === Node.TEXT_NODE ? node.textContent.trim() : node.matches("span:not([data-twp-bilingual])"));
+      const translated = [...element.querySelectorAll("[data-twp-bilingual]")];
+      return texts.map((node, i) => {
+        const range = document.createRange(); range.selectNode(node);
+        const source = range.getBoundingClientRect(), copy = translated[i].getBoundingClientRect();
+        const next = texts[i + 1];
+        if (next) range.selectNode(next);
+        return {below:copy.top >= source.bottom - 1, beforeNext:!next || copy.bottom <= range.getBoundingClientRect().top + 1};
+      });
+    });
+    expect(positions).toEqual(Array(3).fill({below:true,beforeNext:true}));
+  }
+  await checkOrder();
+  await page.setViewportSize({width:390,height:1000});
+  await checkOrder();
+  // Rescans and source edits must keep the same anchors without duplicates.
+  await page.locator("#quiz-heading > span").first().evaluate(node => { node.textContent = "Updated first paragraph."; });
+  await expect(translations).toHaveText([
+    "中文：Updated first paragraph.", "中文：Second question paragraph.", "中文：Final question paragraph.",
+  ]);
+  await checkOrder();
+  await page.evaluate(() => pageTranslator.restorePage());
+  await expect(page.locator("#quiz-heading [data-twp-bilingual]")).toHaveCount(0);
+  expect(await page.locator("#quiz-item").innerHTML()).toBe(before.replace("First question paragraph.", "Updated first paragraph."));
+});
