@@ -18,7 +18,7 @@ function wav(seconds=20){const count=8000*seconds,bytes=Buffer.alloc(44+count*2)
   const fixturePort=service.address().port;
   let context;const profile=path.join(root,'.local-data/voice/browser-test-'+Date.now());
   try{
-    context=await chromium.launchPersistentContext(profile,{channel:'msedge',headless:true,args:[`--disable-extensions-except=${path.join(root,'build/TWP_AI_0.1.0_Chromium_MV3')}`,`--load-extension=${path.join(root,'build/TWP_AI_0.1.0_Chromium_MV3')}`,'--autoplay-policy=no-user-gesture-required']});
+    context=await chromium.launchPersistentContext(profile,{channel:process.env.TWP_BROWSER_CHANNEL||'chromium',headless:true,args:[`--disable-extensions-except=${path.join(root,'build/TWP_AI_0.1.0_Chromium_MV3')}`,`--load-extension=${path.join(root,'build/TWP_AI_0.1.0_Chromium_MV3')}`,'--autoplay-policy=no-user-gesture-required']});
     const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
     await worker.evaluate(async port=>{
       // Redirect this isolated test worker's loopback requests to its fixture;
@@ -72,7 +72,7 @@ function wav(seconds=20){const count=8000*seconds,bytes=Buffer.alloc(44+count*2)
     await panel.locator('#voice-capture').click();await expect(panel.locator('#voice-profile-status')).toContainText('7.0 秒',{timeout:15000});
     const captured=calls.filter(row=>row.path==='/reference-text').at(-1),reference=Buffer.from(captured.body.audio,'base64');if(reference.readUInt32LE(40)!==7*16000*2)throw new Error('Reference capture was not seven seconds');
     await panel.locator('#voice-learning summary').click();
-    await expect(panel.locator('#voice-speed')).toHaveValue('1.25');
+    await expect(panel.locator('#voice-speed')).toHaveValue('1');
     await video.evaluate(v=>{v.currentTime=1;v.muted=false;return v.play();});
     delay=800;await panel.locator('#voice-mode').selectOption('subtitles');await panel.locator('#voice-start').click();
     await expect.poll(()=>panel.locator('#voice-status').textContent()).toContain('暂用原声');

@@ -57,6 +57,7 @@
     "<all_urls>"
   ],
   "permissions": [
+    "nativeMessaging",
     "activeTab",
     "storage",
     "contextMenus",

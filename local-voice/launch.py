@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
-"""Start an independent Windows service and wait for model readiness."""
+"""Start an independent local service and wait for model readiness."""
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -11,21 +12,42 @@ import urllib.error
 import urllib.request
 
 
+@contextmanager
+def creation_lock(home):
+    # The native helper holds the same lock when stopping. It cannot terminate
+    # us between spawning the child and recording its PID, leaving an orphan.
+    if os.name == "nt":
+        yield
+        return
+    import fcntl
+    with (home / "bridge.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def probe():
     # Localhost must bypass system proxies, including an HTTP_PROXY environment.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     request = urllib.request.Request(
-        "http://127.0.0.1:8765/session", data=b"{}",
+        "http://127.0.0.1:8765/status", data=b"{}",
         headers={"Content-Type": "application/json", "X-Yedu-Voice": "1"},
     )
     try:
         with opener.open(request, timeout=2) as response:
             data = json.load(response)
     except urllib.error.HTTPError as error:
+        if error.code == 404:
+            # Compatibility with a running service from before /status existed.
+            request.full_url = "http://127.0.0.1:8765/session"
+            with opener.open(request, timeout=2) as response:
+                data = json.load(response)
+            if not isinstance(data.get("token"), str) or not data.get("model"):
+                raise RuntimeError("Port 8765 is occupied by an unexpected service")
+            return data["model"]
         raise RuntimeError("Local service is responding but unavailable; check server.err.log") from error
     except (urllib.error.URLError, TimeoutError, ConnectionError):
         return None
-    if not isinstance(data.get("token"), str) or not data.get("model"):
+    if data.get("state") != "ready" or not data.get("model"):
         raise RuntimeError("Port 8765 is occupied by an unexpected service")
     return data["model"]
 
@@ -50,7 +72,6 @@ def main():
     home = Path(os.environ.get("YEDU_VOICE_HOME", root / ".local-data/voice"))
     home.mkdir(parents=True, exist_ok=True)
     # Released automatically on process exit, including an interrupted startup.
-    import msvcrt
     with (home / "startup.lock").open("a+b") as lock:
         lock.seek(0)
         if not lock.read(1):
@@ -58,7 +79,12 @@ def main():
             lock.flush()
         lock.seek(0)
         try:
-            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             raise RuntimeError("Another launcher is loading models; retry after it finishes")
         model = probe()
@@ -68,15 +94,16 @@ def main():
         command = [sys.executable, "-u", str(root / "local-voice/server.py")]
         if args.foreground:
             raise SystemExit(subprocess.call(command, cwd=root))
-        flags = (subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.DETACHED_PROCESS
-                 | subprocess.CREATE_NEW_PROCESS_GROUP)
-        with (home / "server.log").open("w") as out, (home / "server.err.log").open("w") as err:
-            try:
-                process = subprocess.Popen(command, cwd=root, stdin=subprocess.DEVNULL,
-                                           stdout=out, stderr=err, creationflags=flags)
-            except OSError as error:
-                raise RuntimeError("Cannot detach service in this terminal; run start.ps1 -Foreground in a normal PowerShell window") from error
-        (home / "launcher.pid").write_text(str(process.pid), encoding="ascii")
+        detached = {"creationflags": subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.DETACHED_PROCESS |
+                    subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+        with creation_lock(home):
+            with (home / "server.log").open("w") as out, (home / "server.err.log").open("w") as err:
+                try:
+                    process = subprocess.Popen(command, cwd=root, stdin=subprocess.DEVNULL,
+                                               stdout=out, stderr=err, **detached)
+                except OSError as error:
+                    raise RuntimeError("Cannot detach service in this terminal; run start.ps1 -Foreground in a normal PowerShell window") from error
+            (home / "launcher.pid").write_text(str(process.pid), encoding="ascii")
         print("Loading models in the background...", flush=True)
         model = wait_ready(process)
         print("Ready at http://127.0.0.1:8765: " + model)

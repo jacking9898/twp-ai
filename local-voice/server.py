@@ -6,24 +6,56 @@ import binascii
 import os
 import secrets
 import time
+import hashlib
+import io
+import platform
+import tempfile
+from contextlib import asynccontextmanager
 from collections import OrderedDict
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from engine import LocalEngine
+from engine import LocalEngine, decode_pcm
 from voice_profiles import VoiceProfiles
 
 ROOT = Path(os.environ.get("YEDU_VOICE_HOME", Path(__file__).resolve().parents[1] / ".local-data/voice"))
 MAX_BODY = 600_000
 
 
+def default_engine():
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        from mac_engine import MacEngine
+        return MacEngine(ROOT)
+    return LocalEngine(ROOT)
+
+
 def create_app(engine=None, profile_root=None):
-    engine = engine or LocalEngine(ROOT)
+    engine = engine or default_engine()
     profiles = VoiceProfiles(profile_root or getattr(engine, "root", ROOT))
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     sessions = OrderedDict()
     cache = OrderedDict()
     inference = asyncio.Lock()
+    streams = OrderedDict()
+    queued = 0
+
+    @asynccontextmanager
+    async def live_slot():
+        nonlocal queued
+        if queued >= 3:
+            raise HTTPException(429, "本地模型正在处理，请稍后重试")
+        queued += 1
+        try:
+            try:
+                await asyncio.wait_for(inference.acquire(), timeout=10)
+            except TimeoutError:
+                raise HTTPException(429, "本地模型正在处理，请稍后重试")
+        finally:
+            queued -= 1
+        try:
+            yield
+        finally:
+            inference.release()
 
     @app.middleware("http")
     async def guard(request, call_next):
@@ -60,6 +92,13 @@ def create_app(engine=None, profile_root=None):
             raise HTTPException(400, "无效请求")
         return value
 
+    @app.post("/status")
+    async def service_status(request: Request):
+        await body(request, False)
+        missing = engine.missing()
+        return {"state": "error" if missing else "ready", "model": getattr(engine, "model_label", "local-voice"),
+                "message": "模型文件不完整" if missing else "模型已就绪"}
+
     @app.post("/session")
     async def session(request: Request):
         await body(request, False)
@@ -70,17 +109,18 @@ def create_app(engine=None, profile_root=None):
         sessions[token] = time.monotonic() + 24 * 3600
         while len(sessions) > 64:
             sessions.popitem(last=False)
-        return {"token": token, "model": "small.en · OPUS-MT en-zh · GPT-SoVITS v2Pro", "target": "zh-CN"}
+        return {"token": token, "model": getattr(engine, "model_label", "local-voice"), "target": "zh-CN", "capabilities": ["live-reference", "timings"]}
 
-    def dub(text, language, profile_id=""):
+    def dub(text, language, profile_id="", live_reference=None, context=""):
         if not isinstance(profile_id, str):
             raise ValueError("无效人物音色")
-        reference = profiles.get(profile_id) if profile_id else None
-        key = (text, language, profile_id)
+        reference = profiles.get(profile_id) if profile_id else live_reference
+        voice_key = profile_id or (reference or {}).get("key", "")
+        key = (text, language, voice_key, context)
         if key in cache:
             cache.move_to_end(key)
             return cache[key]
-        translated = engine.translate(text, language)
+        translated = engine.translate(text, language, context=context) if context else engine.translate(text, language)
         audio, duration = engine.synthesize(translated, reference) if reference else engine.synthesize(translated)
         if len(audio) > 4_000_000:
             raise ValueError("合成音频过长，请缩短字幕")
@@ -90,6 +130,17 @@ def create_app(engine=None, profile_root=None):
         while len(cache) > 64 or sum(len(row["audio"]) for row in cache.values()) > 32_000_000:
             cache.popitem(last=False)
         return result
+
+    def live_dub(text, profile_id, state, context=""):
+        reference = state.get("reference")
+        if profile_id or not reference:
+            return dub(text, "en", profile_id, context=context)
+        # Source speech is temporary: never silently create a saved voice profile.
+        with tempfile.TemporaryDirectory(prefix="yedu-voice-") as folder:
+            path = Path(folder) / "reference.wav"
+            path.write_bytes(reference["audio"])
+            return dub(text, "en", "", {"path": str(path), "text": reference["text"],
+                "language": "en", "key": reference["key"]}, context=context)
 
     def reference_audio(data):
         try:
@@ -142,6 +193,11 @@ def create_app(engine=None, profile_root=None):
     @app.post("/recognize-dub")
     async def recognize(request: Request):
         data = await body(request)
+        stream_id = data.get("streamId", "")
+        if not isinstance(stream_id, str) or len(stream_id) > 80 or (stream_id and not all(c.isalnum() or c in "_-" for c in stream_id)):
+            raise HTTPException(400, "无效音频会话")
+        if not isinstance(data.get("autoVoice", False), bool) or (data.get("autoVoice") and not stream_id):
+            raise HTTPException(400, "原声音色需要独立音频会话")
         try:
             encoded = data.get("audio")
             if not isinstance(encoded, str) or len(encoded) > 520_000:
@@ -149,12 +205,53 @@ def create_app(engine=None, profile_root=None):
             audio = base64.b64decode(encoded, validate=True)
         except (ValueError, binascii.Error):
             raise HTTPException(400, "无效音频")
-        if inference.locked():
-            raise HTTPException(429, "本地模型正在处理另一请求，请稍后重试")
-        async with inference:
+        async with live_slot():
             def process():
-                text = engine.recognize(audio)
-                return dub(text, "en", data.get("voiceProfileId", "")) if text else {"text": "", "translated": "", "audio": "", "duration": 0}
+                started = time.perf_counter()
+                samples = decode_pcm(audio)
+                token = request.headers.get("authorization", "")
+                key = (token, stream_id)
+                now = time.monotonic()
+                for old in list(streams):
+                    if now - streams[old]["updated"] > 300:
+                        del streams[old]
+                state = streams.pop(key, {"prompt": "", "parts": [], "texts": [], "samples": 0})
+                state["updated"] = now
+                if stream_id:
+                    streams[key] = state
+                    while len(streams) > 16:
+                        streams.popitem(last=False)
+                preceding = state["prompt"]
+                text = engine.recognize(audio, prompt=preceding) if stream_id else engine.recognize(audio)
+                recognized = time.perf_counter()
+                if text:
+                    state["prompt"] = (state["prompt"] + " " + text)[-240:]
+                auto_voice = data.get("autoVoice", False) and not data.get("voiceProfileId")
+                if text and auto_voice and not state.get("reference") and float((samples ** 2).mean()) >= .00001:
+                    state["parts"].append(samples)
+                    state["texts"].append(text)
+                    state["samples"] += len(samples)
+                    if state["samples"] >= 3 * 16000:
+                        import numpy as np
+                        joined = np.concatenate(state["parts"])
+                        output = io.BytesIO()
+                        with wave.open(output, "wb") as wav:
+                            wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)
+                            wav.writeframes((joined * 32768).clip(-32768, 32767).astype("<i2").tobytes())
+                        reference = output.getvalue()
+                        state["reference"] = {"audio": reference, "text": " ".join(state["texts"]),
+                            "key": hashlib.sha256(reference).hexdigest()}
+                        state["parts"] = []; state["texts"] = []
+                if not text:
+                    result = {"text": "", "translated": "", "audio": "", "duration": 0}
+                elif auto_voice and not state.get("reference"):
+                    result = {"text": text, "translated": engine.translate(text, "en"), "audio": "", "duration": 0, "preparingVoice": True}
+                else:
+                    result = live_dub(text, data.get("voiceProfileId", ""), state if auto_voice else {}, context=preceding)
+                finished = time.perf_counter()
+                return {**result, "voiceSource": "speaker" if auto_voice and state.get("reference") else "profile" if data.get("voiceProfileId") else "default",
+                    "timings": {"recognition": round(recognized - started, 3), "translationAndSpeech": round(finished - recognized, 3),
+                        "total": round(finished - started, 3)}, "sourceDuration": round(len(samples) / 16000, 3)}
             try:
                 return await asyncio.to_thread(process)
             except (ValueError, RuntimeError, OSError, ImportError, wave.Error, EOFError) as error:
@@ -166,10 +263,16 @@ import wave
 app = create_app()
 if __name__ == "__main__":
     import uvicorn
-    engine = LocalEngine(ROOT)
+    from progress import write_progress
+    engine = default_engine()
     if engine.missing():
+        write_progress(ROOT, "error", "模型文件不完整，请先完成本地模型安装")
         raise SystemExit("Run setup.ps1 first. Missing: " + ", ".join(engine.missing()))
     print("Loading local models; the extension can connect after startup completes.", flush=True)
-    engine.warmup()
+    try:
+        engine.warmup(lambda stage, message: write_progress(ROOT, stage, message))
+    except Exception:
+        write_progress(ROOT, "error", "模型加载失败，请检查本地模型安装与可用内存")
+        raise
     app = create_app(engine)
     uvicorn.run(app, host="127.0.0.1", port=8765, access_log=False)

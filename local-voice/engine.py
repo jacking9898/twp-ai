@@ -20,6 +20,7 @@ def decode_pcm(encoded: bytes):
 
 
 class LocalEngine:
+    model_label = "small.en · OPUS-MT en-zh · GPT-SoVITS v2Pro"
     def __init__(self, root: Path):
         self.root = root.resolve()
         os.environ["NLTK_DATA"] = str(self.root / "nltk_data")
@@ -38,7 +39,7 @@ class LocalEngine:
             files.append("GPT-SoVITS/GPT_SoVITS/text/G2PWModel/g2pW.onnx")
         return [name for name in files if not (self.root / name).is_file()]
 
-    def translate(self, text, language="en"):
+    def translate(self, text, language="en", context=""):
         if language.lower().startswith("zh"):
             return text
         if language not in ("en", "auto"):
@@ -54,16 +55,18 @@ class LocalEngine:
             result = self.translator.generate(**batch, max_new_tokens=256)
         return self.tokenizer.decode(result[0], skip_special_tokens=True)
 
-    def recognize(self, audio):
+    def recognize(self, audio, prompt=""):
         if self.asr is None:
             import torch
             if os.name == "nt":
                 self.cuda_dlls = os.add_dll_directory(str(Path(torch.__file__).parent / "lib"))
             from faster_whisper import WhisperModel
             self.asr = WhisperModel(str(self.root / "asr"), device="cuda", compute_type="int8_float16")
-        segments, _ = self.asr.transcribe(decode_pcm(audio), language="en", beam_size=1,
-                                          vad_filter=True, condition_on_previous_text=False)
-        return " ".join(row.text.strip() for row in segments).strip()
+        segments, _ = self.asr.transcribe(decode_pcm(audio), language="en", beam_size=3,
+            temperature=0, initial_prompt=prompt or None, vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 280}, condition_on_previous_text=False)
+        return " ".join(row.text.strip() for row in segments
+                        if row.no_speech_prob < .8 and row.avg_logprob > -1.3).strip()
 
     def synthesize(self, text, reference=None):
         # Upstream prints normalized input text during inference. Suppress it
@@ -80,8 +83,12 @@ class LocalEngine:
         samples, rate = soundfile.read(path, dtype="float32", always_2d=True)
         return torch.from_numpy(samples.T.copy()), rate
 
-    def warmup(self):
-        self.synthesize(self.translate("Welcome to local video dubbing."))
+    def warmup(self, progress=lambda stage, message: None):
+        progress("translation", "正在加载翻译模型…")
+        translated = self.translate("Welcome to local video dubbing.")
+        progress("speech", "正在加载配音与音色模型…")
+        self.synthesize(translated)
+        progress("recognition", "正在加载语音识别模型…")
         silent = io.BytesIO()
         with wave.open(silent, "wb") as wav:
             wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)

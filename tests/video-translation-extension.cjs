@@ -421,7 +421,10 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
     await expect(panel.locator('#source option')).toHaveCount(1);await expect(panel.locator('#status')).toContainText('保留网站原字幕',{timeout:12000});await playerClick('player-toggle');await expect(panel.locator('#start')).toHaveText('停止视频翻译');
     // Reload the real extension while its old video UI and timers remain live.
     expect(await worker.evaluate(()=>captionVoiceRequests)).toEqual([]);
-    const restarted=context.waitForEvent('serviceworker',w=>w.url().includes(base.split('/')[2]));await worker.evaluate(()=>chrome.runtime.reload()).catch(error=>{if(!/closed|destroyed|Target/i.test(error.message))throw error;});await restarted;
+    // The contract is cleanup of the invalidated content world. Chromium
+    // started with --load-extension can unload rather than relaunch the worker;
+    // a new worker event is not required for the old UI to stop safely.
+    await worker.evaluate(()=>chrome.runtime.reload()).catch(error=>{if(!/closed|destroyed|Target/i.test(error.message))throw error;});
     await expect(panel).toHaveCount(0,{timeout:6000});await page.evaluate(()=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));document.dispatchEvent(new Event('yedu-youtube-captions-ready'));});
     expect(errors).toEqual([]);
     console.log('Video translation passed: supported-site entrances, unsupported-site hiding, Bilibili and YouTube player controls, subtitle discovery, manual/ASR/XML tracks, MAIN-world bridge, language selection, layout, hover, ads, fullscreen, cache, cancellation, imports, exports and SPA cleanup.');

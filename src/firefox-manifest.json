@@ -74,6 +74,7 @@
     "<all_urls>"
   ],
   "permissions": [
+    "nativeMessaging",
     "storage",
     "activeTab",
     "contextMenus",
@@ -217,6 +218,7 @@
       "/background/videoSubtitles.js",
       "/lib/youtubeSubtitles.js",
       "/background/youtubeSubtitles.js",
+      "/background/localVoiceService.js",
       "/background/localVoice.js",
       "/off_screen.js",
       "/background/textToSpeech.js",

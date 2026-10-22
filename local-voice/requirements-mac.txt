@@ -1,0 +1,11 @@
+# Apple Silicon; separate from the Windows/CUDA environment.
+mlx-audio==0.6.1
+mlx-whisper==0.4.3
+mlx-lm==0.32.2
+fastapi==0.115.12
+uvicorn==0.34.2
+httpx>=0.28,<1
+transformers>=5.14.0,<6
+sentencepiece>=0.2,<1
+sacremoses>=0.1,<1
+soundfile>=0.13,<1

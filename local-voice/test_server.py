@@ -16,13 +16,14 @@ class FakeEngine:
         self.calls = 0
     def missing(self):
         return []
-    def translate(self, text, language):
+    def translate(self, text, language, context=""):
         self.calls += 1
         return "你好"
     def synthesize(self, text, reference=None):
         self.reference = reference
         return b"test-wav", 1.0
-    def recognize(self, audio):
+    def recognize(self, audio, prompt=""):
+        self.prompt = prompt
         decode_pcm(audio)
         return "Hello"
 
@@ -43,6 +44,14 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(base64.b64decode(response.json()["audio"]), b"test-wav")
         self.assertEqual(self.engine.calls, 1)
+
+    def test_status_polling_never_evicts_the_active_video_session(self):
+        for _ in range(70):
+            response = self.client.post("/status", json={}, headers={"X-Yedu-Voice": "1"})
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("token", response.json())
+        response = self.client.post("/dub", json={"text": "Hello", "language": "en"}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
 
     def test_website_origin_and_rebinding_rejected(self):
         for update in ({"Origin": "https://www.youtube.com"}, {"Host": "attacker.example"}, {"X-Yedu-Voice": "0"}):
@@ -102,6 +111,31 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(response.json()["text"], "Hello")
         for value in ("../../reference", {}, "f" * 32):
             self.assertEqual(self.client.post("/dub", json={"text": "Hello", "voiceProfileId": value}, headers=self.headers).status_code, 503)
+
+    def test_live_reference_is_temporary_and_scoped_to_audio_stream(self):
+        data = {"audio": self.reference(2), "streamId": "video-one", "autoVoice": True}
+        first = self.client.post("/recognize-dub", json=data, headers=self.headers).json()
+        self.assertTrue(first["preparingVoice"])
+        self.assertEqual(first["audio"], "")
+        second = self.client.post("/recognize-dub", json=data, headers=self.headers).json()
+        self.assertEqual(second["voiceSource"], "speaker")
+        self.assertEqual(self.engine.reference["text"], "Hello Hello")
+        self.assertEqual(self.engine.prompt, " Hello")
+        self.assertIn("recognition", second["timings"])
+        from pathlib import Path
+        self.assertFalse(Path(self.engine.reference["path"]).exists())
+        self.assertEqual(self.client.post("/profiles/list", json={}, headers=self.headers).json()["profiles"], [])
+        separate = self.client.post("/recognize-dub", json={**data, "streamId": "video-two"}, headers=self.headers).json()
+        self.assertTrue(separate["preparingVoice"])
+        self.assertEqual(self.engine.prompt, "")
+
+    def test_live_reference_rejects_invalid_streams_and_silent_prompts(self):
+        for data in ({"streamId": "../../file", "autoVoice": True}, {"autoVoice": True}, {"streamId": "test", "autoVoice": "yes"}):
+            response = self.client.post("/recognize-dub", json={"audio": self.reference(), **data}, headers=self.headers)
+            self.assertEqual(response.status_code, 400)
+        response = self.client.post("/recognize-dub", json={"audio": self.reference(silent=True), "streamId": "silent", "autoVoice": True}, headers=self.headers).json()
+        self.assertTrue(response["preparingVoice"])
+        self.assertEqual(response["audio"], "")
 
 
 if __name__ == "__main__":

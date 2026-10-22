@@ -98,10 +98,15 @@ gulp.task("zip", () => Promise.all([chromium, firefox].map(dir => pipeline(
   gulp.src("**/*", {cwd: path.join(build, dir), encoding: false}), zip(`${dir.replace("TWP_AI_", "Yedu_")}.zip`), gulp.dest(build)
 ))));
 gulp.task("source-zip", () => gulp.src([
-  "src/**/*", "extension/**/*", "scripts/**/*", "tests/**/*", "docs/**/*", "licenses/**/*", "assets/branding/**/*", ".github/**/*", "local-voice/**/*", "!local-voice/__pycache__/**",
-  ".gitignore", "LICENSE", "PRIVACY", "*.md", "THIRD_PARTY_LICENSES.txt", "package.json", "package-lock.json", "gulpfile.js", "polyfill.js", "webpack.*.cjs", "playwright.config.js", "jsconfig*.json",
+  "src/**/*", "extension/**/*", "scripts/**/*", "tests/**/*", "docs/**/*", "licenses/**/*", "assets/branding/**/*", ".github/**/*", "local-voice/**/*",
+  ".gitignore", "LICENSE", "PRIVACY", "THIRD_PARTY_LICENSES.txt", "package.json", "package-lock.json", "gulpfile.js", "polyfill.js", "playwright.config.js",
+  // Root wildcards make glob-stream walk the entire workspace, including
+  // model caches and test-browser symlinks. Enumerate these root files instead.
+  ...fs.readdirSync(root, {withFileTypes: true}).filter(entry => entry.isFile() &&
+    (/\.md$/i.test(entry.name) || /^webpack\..*\.cjs$/.test(entry.name) || /^jsconfig.*\.json$/.test(entry.name))).map(entry => entry.name),
   "!src/background/aiService.bundle.js", "!src/background/aiService.bundle.js.LICENSE.txt",
   "!src/lib/ocr", "!src/lib/ocr/**/*",
+  "!local-voice/__pycache__/**", "!.local-data/**", "!node_modules/**", "!build/**", "!.git/**",
 ], {cwd: root, base: root, dot: true, encoding: false}).pipe(zip(`Yedu_${version}_Source.zip`)).pipe(gulp.dest(build)));
 gulp.task("checksums", cb => {
   const {createHash} = require("node:crypto");
