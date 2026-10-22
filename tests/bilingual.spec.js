@@ -743,7 +743,7 @@ for (const width of [1280, 768, 390]) {
     await expect(page.locator("#protected-edges > [data-twp-bilingual]")).toHaveCount(1);
     expect(await page.evaluate(sourceGeometry)).toEqual(before);
     const requests = await page.evaluate(() => testRequests.flatMap(request => request.sourceArray2d.flat()));
-    expect(requests).toContain("You create a `meal` feature that contains a one-hot encoded representation of each of the meal items in the dataset. Encoding refers to the process of choosing an initial numerical representation of data to train the model on.");
+    expect(requests).toContain("You create a `meal` feature that contains a `__TWP_INLINE_LINK_0_START__`one-hot encoded`__TWP_INLINE_LINK_0_END__` representation of each of the meal items in the dataset. `__TWP_INLINE_LINK_1_START__`Encoding`__TWP_INLINE_LINK_1_END__` refers to the process of choosing an initial numerical representation of data to train the model on.");
     expect(requests.join(" ")).not.toMatch(/EXCLUDED_|private_code|private_nested/);
     await expect(page.locator("#meal > [data-twp-bilingual] code")).toHaveText("meal");
     await expect(page.locator("#meal > [data-twp-bilingual] code")).toHaveAttribute("dir", "ltr");
@@ -898,7 +898,7 @@ test("MathJax formulas stay inside complete bilingual sentences and preserve ori
   await expect(page.locator("#math-end > [data-twp-bilingual]")).toHaveCount(1);
   const sentences = await page.evaluate(() => testRequests.flatMap(r => r.sourceArray2d.flat()));
   expect(sentences).toContain("A nonlinear model has the form $b + w_1x_1 + w_2x_2$. Its decision surface is not a line.");
-  expect(sentences).toContain("Cross the features $x_1$ and $x_2$, then use a linear model: $b + w_1x_1 + w_2x_2 + w_3x_3$ where $x_3$ is the cross between $x_1$ and $x_2$.");
+  expect(sentences).toContain("Cross the features $x_1$ and $x_2$, then use a `__TWP_INLINE_LINK_0_START__`linear model`__TWP_INLINE_LINK_0_END__`: $b + w_1x_1 + w_2x_2 + w_3x_3$ where $x_3$ is the cross between $x_1$ and $x_2$.");
   await expect(page.locator("#cross > [data-twp-bilingual] .MathJax_SVG")).toHaveCount(6);
   await expect(page.locator("#nonlinear > [data-twp-bilingual] svg")).toHaveCount(1);
   expect(await page.locator("#cross > [data-twp-bilingual]").textContent()).not.toContain("$");
@@ -1078,4 +1078,60 @@ test("a tab too tight for a translation preserves its original label and click h
   await page.locator("#tiny-tab").click();
   expect(await page.evaluate(() => window.tabClicks)).toBe(1);
   await expect(page).toHaveURL(/#tiny$/);
+});
+
+test("translated labels retain source link destinations, color and click behavior", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><style>a {color:rgb(26,115,232);text-decoration:underline}</style>
+    <p id="linked-prose">See <a id="fairness" href="/fairness?view=bias#evaluation" target="_blank" onclick="window.sourceClicked=true">Fairness: <strong>Evaluating for Bias</strong></a> or <a href="#details">details</a>.</p>`));
+  const before = await page.locator("#linked-prose").innerHTML();
+  await page.evaluate(() => bilingualTranslator.start({ targetLanguage: "zh-CN", dynamicContent: true,
+    translate: async paragraphs => paragraphs.map(([text]) => [text.replace("See ", "请参阅 ")
+      .replace("Fairness: Evaluating for Bias", "公平性：偏差评估").replace(" or ", " 或 ").replace("details", "详情")]) }));
+  const translation = page.locator("#linked-prose > [data-twp-bilingual]");
+  await expect(translation).toHaveText("请参阅 公平性：偏差评估 或 详情.");
+  const link = translation.locator("a").first();
+  await expect(link).toHaveText("公平性：偏差评估");
+  await expect(link).toHaveAttribute("href", "https://bilingual.test/fairness?view=bias#evaluation");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveCSS("color", "rgb(26, 115, 232)");
+  await expect(link).toHaveCSS("text-decoration-line", "underline");
+  await expect(translation.locator("[id], [onclick]")).toHaveCount(0);
+  await page.context().route("https://bilingual.test/fairness**", route =>
+    route.fulfill({ contentType: "text/html", body: "<h1>Fairness destination</h1>" }));
+  const popupPromise = page.waitForEvent("popup");
+  await link.click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState();
+  await expect(popup).toHaveURL("https://bilingual.test/fairness?view=bias#evaluation");
+  await popup.close();
+  await translation.locator("a").last().click();
+  await expect(page).toHaveURL(/#details$/);
+  expect(await page.evaluate(() => window.sourceClicked)).toBeUndefined();
+  expect(await page.evaluate(() => bilingualTranslator.sourceText())).not.toContain("__TWP_INLINE_");
+  await page.evaluate(() => bilingualTranslator.stop());
+  expect(await page.locator("#linked-prose").innerHTML()).toBe(before);
+});
+
+test("link changes invalidate pending translations and unsafe destinations stay inert", async ({ page }) => {
+  await setup(page, fixture.replace("<main>", `<main><p id="link-edit">Read <a href="/old">this guide</a> and <a href="javascript:window.unsafeLink=true">unsafe link</a>.</p>`));
+  await page.evaluate(() => { window.translationDelay = 500; });
+  await translate(page);
+  await page.waitForFunction(() => testRequests.some(r => r.sourceArray2d.flat().some(t => t.includes("this guide"))));
+  await page.locator("#link-edit > a").first().evaluate(link => link.setAttribute("href", "/new"));
+  const translation = page.locator("#link-edit > [data-twp-bilingual]");
+  await expect(translation.locator("a").first()).toHaveAttribute("href", "https://bilingual.test/new");
+  await expect(translation.locator("a").last()).not.toHaveAttribute("href");
+  await expect(translation).not.toContainText("__TWP_INLINE_");
+  await translation.locator("a").last().click();
+  expect(await page.evaluate(() => window.unsafeLink)).toBeUndefined();
+  await expect(translation).toHaveCount(1);
+  // A provider losing a boundary must leave readable text, never visible markers.
+  await page.evaluate(() => {
+    pageTranslator.restorePage();
+    const piece = bilingualTranslator.paragraphAt(document.getElementById("link-edit"), 0, 0);
+    const text = bilingualTranslator.textForTranslation(piece).replace(piece.links[0].end, "");
+    bilingualTranslator.renderParagraph(piece, "译文：" + text, "zh-CN");
+  });
+  await expect(translation).not.toContainText("__TWP_INLINE_");
+  await expect(translation).toContainText("this guide");
 });

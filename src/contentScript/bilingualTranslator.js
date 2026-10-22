@@ -100,6 +100,7 @@ const bilingualTranslator = (() => {
   function unchanged(piece) {
     return piece.nodes.every((node, i) => node.isConnected && node.textContent === piece.source[i]) &&
       (piece.literals || []).every(item => item.node.outerHTML === item.html) &&
+      (piece.links || []).every(item => item.node.outerHTML === item.html) &&
       (piece.math || []).every(item => item.node.outerHTML === item.html && mathSource(item.node) === item.text);
   }
 
@@ -138,7 +139,17 @@ const bilingualTranslator = (() => {
           }
           // A standalone formula is not prose to translate.
           if (nodes.some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) {
-            pieces.push({ container, anchor, nodes, math, literals, source: nodes.map(n => n.textContent) });
+            const links = [];
+            for (const node of nodes) {
+              const link = node.parentElement.closest("a[href]");
+              if (!link || link === container || !container.contains(link) ||
+                  literals.some(item => item.node === link) || links.some(item => item.node === link)) continue;
+              const linked = nodes.filter(item => link.contains(item));
+              links.push({ node: link, html: link.outerHTML, first: linked[0], last: linked[linked.length - 1],
+                start: `\`${literalPrefix}LINK_${links.length}_START__\``,
+                end: `\`${literalPrefix}LINK_${links.length}_END__\`` });
+            }
+            pieces.push({ container, anchor, nodes, math, literals, links, source: nodes.map(n => n.textContent) });
           }
           nodes = [];
         }
@@ -215,11 +226,13 @@ const bilingualTranslator = (() => {
       record.nodes.every((node, i) => node === piece.nodes[i] && record.source[i] === piece.source[i]) &&
       record.literals.length === piece.literals.length &&
       record.literals.every((item, i) => item.html === piece.literals[i].html && item.text === piece.literals[i].text) &&
+      record.links.length === piece.links.length &&
+      record.links.every((item, i) => item.node === piece.links[i].node && item.html === piece.links[i].html) &&
       record.math.length === piece.math.length &&
       record.math.every((item, i) => item.html === piece.math[i].html && item.text === piece.math[i].text);
   }
 
-  function textForTranslation(piece) {
+  function textForTranslation(piece, includeLinks = true) {
     // HTML source newlines and indentation are usually collapsed by CSS. Keep
     // the raw source for DOM change checks, but send the visible whitespace to
     // providers so it cannot return as artificial line breaks in the result.
@@ -227,8 +240,14 @@ const bilingualTranslator = (() => {
     piece.nodes.forEach((node, i) => {
       const whitespace = getComputedStyle(node.parentElement).whiteSpace;
       const previous = runs[runs.length - 1];
-      const text = piece.literals?.find(item => item.node === node)?.text ??
+      let text = piece.literals?.find(item => item.node === node)?.text ??
         piece.math?.find(item => item.node === node)?.text ?? piece.source[i];
+      if (includeLinks) {
+        for (const link of piece.links || []) {
+          if (link.first === node) text = link.start + text;
+          if (link.last === node) text += link.end;
+        }
+      }
       if (previous && previous.whitespace === whitespace) previous.text += text;
       else runs.push({ whitespace, text });
     });
@@ -294,6 +313,41 @@ const bilingualTranslator = (() => {
   }
 
   function appendTranslation(element, record, text) {
+    // Link boundaries are protected inline literals; only the label is translated.
+    // Destinations and appearance come from the source, never provider markup.
+    const links = record.links || [];
+    const tokens = links.flatMap(link => [link.start, link.end]);
+    const clean = value => tokens.length ? value.replace(formulaPattern(tokens), "") : value;
+    let offset = 0;
+    const ranges = links.map(link => {
+      const start = text.indexOf(link.start);
+      const end = text.indexOf(link.end, start + link.start.length);
+      return { link, start, end };
+    }).filter(({ start, end }) => start >= 0 && end >= 0).sort((a, b) => a.start - b.start);
+    for (const { link, start, end } of ranges) {
+      if (start < offset) continue;
+      appendInlineTranslation(element, record, clean(text.slice(offset, start)));
+      const copy = document.createElement("a");
+      try {
+        const url = new URL(link.node.getAttribute("href"), link.node.baseURI);
+        if (["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) {
+          copy.href = url.href;
+          if (["_blank", "_self", "_parent", "_top"].includes(link.node.target)) copy.target = link.node.target;
+          copy.rel = "noopener noreferrer";
+          if (link.node.hasAttribute("title")) copy.title = link.node.title;
+          const style = getComputedStyle(link.node);
+          copy.style.color = style.color;
+          copy.style.textDecoration = style.textDecoration;
+        }
+      } catch (_) { /* Invalid source destinations remain inert text. */ }
+      appendInlineTranslation(copy, record, clean(text.slice(start + link.start.length, end)));
+      element.append(copy);
+      offset = end + link.end.length;
+    }
+    appendInlineTranslation(element, record, clean(text.slice(offset)));
+  }
+
+  function appendInlineTranslation(element, record, text) {
     // Parse in an inert template, then rebuild only inline formatting with fresh
     // nodes and no provider attributes. Unknown markup remains visible text.
     // Keep plain responses untouched, including literal angle brackets/entities.
@@ -530,7 +584,7 @@ const bilingualTranslator = (() => {
     if (dynamicContent && document.body) {
       session.observer.observe(document.body, {
         childList: true, characterData: true, subtree: true, attributes: true,
-        attributeFilter: ["hidden", "style", "class", "translate", "contenteditable", "dir", "href"],
+        attributeFilter: ["hidden", "style", "class", "translate", "contenteditable", "dir", "href", "target", "title"],
       });
     }
     window.addEventListener("scroll", session.onView, true);
@@ -556,5 +610,5 @@ const bilingualTranslator = (() => {
   }
   return { start, stop, paragraphAt, renderParagraph, textForTranslation,
     unchanged,
-    sourceText:()=>collect().map(textForTranslation).join("\n\n") };
+    sourceText:()=>collect().map(piece => textForTranslation(piece, false)).join("\n\n") };
 })();
