@@ -3,6 +3,12 @@
 const twpLocalVoiceService = (() => {
   const host = 'com.yedu.local_voice', key = 'localVoiceServiceState';
   const stopListeners=new Set();
+  const usageKey='localVoiceActiveSessions',sessions=new Map();
+  let lifecycle=Promise.resolve();
+  const usageRestored=chrome.storage.session?.get(usageKey).then(data=>{for(const [key,id] of data[usageKey]||[])sessions.set(key,id);}).catch(()=>{});
+  function exclusive(task){const next=lifecycle.catch(()=>{}).then(async()=>{await usageRestored;return task();});lifecycle=next.catch(()=>{});return next;}
+  const saveUsage=()=>chrome.storage.session?.set({[usageKey]:[...sessions]});
+  const preferences=async()=>{const data=await chrome.storage.local.get(['localVoiceAutoStart','localVoiceAutoStop']);return {autoStart:data.localVoiceAutoStart!==false,autoStop:data.localVoiceAutoStop!==false};};
   let starting, startingGeneration=0, generation=0, snapshot = {state:'unknown',message:'尚未检测',events:[]}, writes = Promise.resolve();
   const restored = chrome.storage.session?.get(key).then(data=>{if(data[key])snapshot=data[key];}).catch(()=>{});
   async function record(event) {
@@ -31,6 +37,24 @@ const twpLocalVoiceService = (() => {
       });
     });
   }
+  async function stopService(notify=true){
+    generation++;
+    const result=await native('stop');
+    if(result.state==='stopped'){
+      sessions.clear();await saveUsage();
+      for(const listener of stopListeners)listener();
+      if(notify)for(const tab of await chrome.tabs.query({}))void chrome.tabs.sendMessage(tab.id,{action:'localVoiceServiceStopped'},{frameId:0}).catch(()=>{});
+    }
+    return update({...result,bridge:true});
+  }
+  async function stopIfUnused(){
+    if(sessions.size||!(await preferences()).autoStop)return {stopped:false};
+    try{const result=await stopService(false);if(result.state!=='stopped')throw new Error(result.message||'模型服务尚未停止');return {stopped:true};}
+    catch(error){await record({kind:'service',message:'自动释放内存失败：'+error.message+'；请打开模型服务页面重试。'});throw error;}
+  }
+  const begin=(key,id)=>exclusive(async()=>{sessions.set(key,id);await saveUsage();});
+  const end=(key,id)=>exclusive(async()=>{if(sessions.get(key)!==id)return {stopped:false};sessions.delete(key);await saveUsage();return stopIfUnused();});
+  const releaseTab=tab=>exclusive(async()=>{let removed=false;for(const key of sessions.keys())if(key.startsWith(tab+':')){sessions.delete(key);removed=true;}if(removed){await saveUsage();return stopIfUnused();}});
   async function status() {
     try {const result=await native('status');return update({...result,bridge:true});}
     catch(error){
@@ -51,7 +75,7 @@ const twpLocalVoiceService = (() => {
     starting=(async()=>{
       await update({state:'starting',message:'正在连接本机启动组件…'});
       try {
-        let result=await native('start');await update({...result,bridge:true});
+        let result=await exclusive(()=>{if(current!==generation)throw new Error('已取消模型启动');return native('start');});if(current!==generation)throw new Error('已取消模型启动');await update({...result,bridge:true});
         const deadline=Date.now()+180000;
         while(result.state==='starting'&&Date.now()<deadline){
           await new Promise(resolve=>setTimeout(resolve,1000));
@@ -76,6 +100,16 @@ const twpLocalVoiceService = (() => {
   }
   const managerURL=()=>chrome.runtime.getURL('options/voice-service.html');
   chrome.runtime.onMessage.addListener((message,sender,reply)=>{
+    if(['localVoiceServiceOpen','localVoiceServicePreferences'].includes(message?.action)){
+      let allowed=sender.id===chrome.runtime.id;
+      try{const url=new URL(sender.url);allowed=allowed&&(url.protocol==='chrome-extension:'&&url.host===chrome.runtime.id||['https:','http:'].includes(url.protocol)&&sender.frameId===0&&Number.isInteger(sender.tab?.id));}catch{allowed=false;}
+      if(!allowed){reply({ok:false,error:'请从页渡控制面板操作'});return;}
+      void(async()=>{
+        if(message.action==='localVoiceServiceOpen'){await chrome.tabs.create({url:managerURL()});return {};}
+        if(message.autoStop!==undefined){if(typeof message.autoStop!=='boolean')throw new Error('无效自动停止设置');await chrome.storage.local.set({localVoiceAutoStop:message.autoStop});}
+        return preferences();
+      })().then(data=>reply({ok:true,...data}),error=>reply({ok:false,error:error.message}));return true;
+    }
     if(!['localVoiceServiceStatus','localVoiceServiceStart','localVoiceServiceStop','localVoiceServiceClear','localVoiceServiceSettings','localVoiceAITranslate','localVoiceAIInfo'].includes(message?.action))return;
     if(sender.id!==chrome.runtime.id||sender.url?.split('?')[0]!==managerURL()){
       reply({ok:false,error:'请从模型服务页面操作'});return;
@@ -88,23 +122,17 @@ const twpLocalVoiceService = (() => {
         try{return {translated:await globalThis.twpAIVoiceTranslate({text:message.text,context:(message.context||'').slice(-600),profileId:message.profileId},controller.signal)};}finally{clearTimeout(timer);}
       }
       if(message.action==='localVoiceServiceSettings'){
-        if(typeof message.autoStart!=='boolean')throw new Error('无效自动启动设置');
-        await chrome.storage.local.set({localVoiceAutoStart:message.autoStart});return {ok:true};
+        if(message.autoStart===undefined&&message.autoStop===undefined||message.autoStart!==undefined&&typeof message.autoStart!=='boolean'||message.autoStop!==undefined&&typeof message.autoStop!=='boolean')throw new Error('无效模型服务设置');
+        await chrome.storage.local.set({...(message.autoStart!==undefined?{localVoiceAutoStart:message.autoStart}:{}),...(message.autoStop!==undefined?{localVoiceAutoStop:message.autoStop}:{})});return preferences();
       }
       if(message.action==='localVoiceServiceClear')return clear();
       if(message.action==='localVoiceServiceStop'){
-        generation++;
-        const result=await native('stop');
-        if(result.state==='stopped'){
-          for(const listener of stopListeners)listener();
-          for(const tab of await chrome.tabs.query({}))void chrome.tabs.sendMessage(tab.id,{action:'localVoiceServiceStopped'},{frameId:0}).catch(()=>{});
-        }
-        return update({...result,bridge:true});
+        return exclusive(stopService);
       }
       if(message.action==='localVoiceServiceStart')return start();
       return status();
     })().then(data=>reply({ok:true,...data,events:undefined}),error=>reply({ok:false,error:error.message}));
     return true;
   });
-  return {ensureStarted,record,status,managerURL,onStop:listener=>stopListeners.add(listener)};
+  return {ensureStarted,record,status,managerURL,begin,end,releaseTab,onStop:listener=>stopListeners.add(listener)};
 })();

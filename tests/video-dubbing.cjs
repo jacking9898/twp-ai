@@ -12,7 +12,7 @@ async function setup(){
   vm.runInNewContext(fs.readFileSync('src/contentScript/videoDubbing.js','utf8')+';globalThis.app=twpVideoDubbing;',sandbox);
   return {app:sandbox.app,video,context,nodes,requests,tracks,messages,states,sandbox,advance:ms=>now+=ms,fail:()=>{fail=true;},hold:()=>{pending=new Promise(()=>{});},start:async(cues=[{id:'a',start:1,end:3,text:'Hello'}],speed=1)=>{await sandbox.app.start({video,loadCues:async()=>cues,speed,status:(...args)=>messages.push(args),onState:value=>states.push(value)});await new Promise(resolve=>setImmediate(resolve));},tick:async()=>{await intervals.at(-1)();await new Promise(resolve=>setImmediate(resolve));}};
 }
-test('subtitle audio mutes only after ready and stop restores original state',async()=>{const s=await setup();await s.start();assert.equal(s.video.muted,false);await s.tick();assert.equal(s.video.muted,true);assert.equal(s.nodes.length,1);s.app.stop();assert.equal(s.video.muted,false);assert.equal(s.nodes[0].stopped,true);assert.equal(s.states.at(-1),false);assert.ok(s.requests.some(row=>row.action==='localVoiceCancel'));});
+test('subtitle audio mutes only after ready and stop restores original state',async()=>{const s=await setup();await s.start();assert.equal(s.video.muted,false);await s.tick();assert.equal(s.video.muted,true);assert.equal(s.nodes.length,1);s.app.stop();assert.equal(s.video.muted,false);assert.equal(s.nodes[0].stopped,true);assert.equal(s.states.at(-1),false);assert.ok(s.requests.some(row=>row.action==='localVoiceEnd'));const connect=s.requests.find(row=>row.action==='localVoiceConnect'),end=s.requests.find(row=>row.action==='localVoiceEnd');assert.equal(end.voiceSessionId,connect.voiceSessionId);});
 test('pause and seek stop old audio and seek can replay cached cue',async()=>{const s=await setup();await s.start();await s.tick();for(const name of ['pause','seeking']){s.video.dispatchEvent(new Event(name));assert.equal(s.nodes.at(-1).stopped,true);await s.tick();}s.app.stop();});
 test('navigation and service failures restore original sound',async()=>{const s=await setup();await s.start();await s.tick();s.sandbox.location.href='https://www.youtube.com/watch?v=newvideo123';await s.tick();assert.equal(s.app.active,false);assert.equal(s.video.muted,false);const failed=await setup();failed.fail();await failed.start();assert.equal(failed.app.active,false);assert.equal(failed.messages.at(-1)[1],true);});
 test('live PCM is bounded and capture survives muting without recording synthesized output',async()=>{const s=await setup();await s.start([]);const samples=new Float32Array(4096).fill(.25);for(let i=0;i<32;i++)s.context.processor.onaudioprocess({inputBuffer:{getChannelData:()=>samples}});await new Promise(resolve=>setImmediate(resolve));const request=s.requests.find(row=>row.action==='localVoiceRecognize');assert.ok(request);const wav=Buffer.from(request.audio,'base64');assert.equal(wav.readUInt32LE(24),16000);assert.equal(wav.readInt16LE(44),8192);assert.equal(s.video.muted,true);s.app.stop();assert.equal(s.video.muted,false);assert.equal(s.tracks[0].stopped,true);});
@@ -135,4 +135,12 @@ test('YouTube same-page media replacement reconnects, but navigation ends the ol
  s.video.readyState=0;s.video.dispatchEvent(new Event('emptied'));assert.equal(old.onaudioprocess,null);await s.tick();assert.equal(s.app.active,true);
  s.video.readyState=4;await s.tick();assert.notEqual(s.context.processor,old);
  s.sandbox.location.href='https://www.youtube.com/watch?v=nextvideo12';await s.tick();assert.equal(s.app.active,false);assert.equal(s.video.muted,false);
+});
+
+test('pause and seek cancel work without releasing the model session; final stop releases the stable session',async()=>{
+ const s=await setup();await s.start([]);const id=s.requests.find(row=>row.action==='localVoiceConnect').voiceSessionId;
+ s.video.pause();s.video.currentTime=12;s.video.dispatchEvent(new Event('seeking'));await s.video.play();await s.tick();
+ assert.equal(s.requests.some(row=>row.action==='localVoiceEnd'),false);
+ assert.equal(s.requests.filter(row=>row.action==='localVoiceCancel').every(row=>row.voiceSessionId===id),true);
+ s.app.stop();assert.equal(s.requests.find(row=>row.action==='localVoiceEnd').voiceSessionId,id);
 });

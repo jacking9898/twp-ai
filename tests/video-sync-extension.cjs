@@ -17,7 +17,7 @@ function wav(seconds=4){const bytes=Buffer.alloc(44+32000*seconds);bytes.write('
  try{
   context=await chromium.launchPersistentContext(path.join(folder,'profile-'+Date.now()),{channel:'chromium',headless:true,args:[`--disable-extensions-except=${path.join(root,'build/TWP_AI_0.1.0_Chromium_MV3')}`,`--load-extension=${path.join(root,'build/TWP_AI_0.1.0_Chromium_MV3')}`,'--autoplay-policy=no-user-gesture-required','--mute-audio']});
   const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
-  await worker.evaluate(async port=>{const native=fetch;globalThis.fetch=(url,options)=>native(typeof url==='string'&&url.startsWith('http://127.0.0.1:8765/')?url.replace(':8765/',':'+port+'/'):url,options);await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');},server.address().port);
+  await worker.evaluate(async port=>{const native=fetch;globalThis.fetch=(url,options)=>native(typeof url==='string'&&url.startsWith('http://127.0.0.1:8765/')?url.replace(':8765/',':'+port+'/'):url,options);await chrome.storage.local.set({localVoiceAutoStop:false});await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');},server.address().port);
   await context.route(origin+'/**',async route=>{
    if(new URL(route.request().url()).pathname==='/source.webm'){
     const range=route.request().headers().range?.match(/^bytes=(\d+)-(\d*)$/),start=range?Number(range[1]):0,end=range&&range[2]?Math.min(Number(range[2]),source.length-1):source.length-1;

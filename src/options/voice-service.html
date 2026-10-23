@@ -6,7 +6,8 @@
     <div class="section-head"><h2 id="service-title">模型服务</h2><span id="state" class="badge">检测中</span></div>
     <p id="service-message" role="status" aria-live="polite">正在检测本地连接…</p><p id="model" class="muted"></p>
     <div class="actions"><button id="start" class="primary" type="button">启动模型</button><button id="stop" type="button">停止并释放内存</button><button id="refresh" type="button">重新检测</button></div>
-    <label class="switch-row"><span><strong>开启语音翻译时自动启动</strong><small>需要时加载模型；关闭配音后服务保持运行，可在此停止。</small></span><input id="auto-start" type="checkbox" role="switch" checked></label>
+    <label class="switch-row"><span><strong>关闭语音翻译后自动释放内存</strong><small>默认开启。最后一个视频关闭配音后停止模型；暂停和拖动不会停止。下次使用时重新加载模型。</small></span><input id="auto-stop" type="checkbox" role="switch" checked></label>
+    <label class="switch-row"><span><strong>开启语音翻译时自动启动</strong><small>需要时加载模型，无需手动执行脚本。</small></span><input id="auto-start" type="checkbox" role="switch" checked></label>
     <p id="action-message" role="status" aria-live="polite"></p>
     <aside id="install" hidden><h3>首次连接</h3><p>Mac Chrome 需要安装一次本机连接组件。双击本地语音服务目录中的「安装本地连接.command」，完成后点击「重新检测」。之后无需手动运行启动脚本。</p><p>此安装只连接已安装的模型；尚未下载模型时，请先完成本地语音服务安装。当前自动启动支持 M 系列 Mac 与 Chrome。</p><p class="muted">当前扩展 ID：<code id="extension-id"></code></p></aside>
     <ol id="startup" aria-label="模型启动过程"><li data-stage="speech">加载配音与音色模型</li><li data-stage="recognition">加载语音识别模型</li><li data-stage="ready">可开始翻译</li></ol>

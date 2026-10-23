@@ -28,7 +28,7 @@ function wav(seconds=20){const count=8000*seconds,bytes=Buffer.alloc(44+count*2)
       // never take down the user's running model service for browser tests.
       const nativeFetch=globalThis.fetch;
       globalThis.fetch=(input,options)=>nativeFetch(typeof input==='string'&&input.startsWith('http://127.0.0.1:8765/')?input.replace(':8765/',':'+port+'/'):input,options);
-      await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{disabledVideos:['youtube:abcdefghijk']}});
+      await chrome.storage.local.set({localVoiceAutoStop:false});await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');twpConfig.set('videoTranslationPreferences',{'www.youtube.com':{disabledVideos:['youtube:abcdefghijk']}});
     },fixturePort);
     const videoFixture=async route=>{
       const url=new URL(route.request().url());

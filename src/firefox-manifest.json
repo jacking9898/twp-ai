@@ -168,6 +168,7 @@
         "/lib/builtinPresets.js",
         "/lib/aiPresets.js",
         "/lib/aiClient.js",
+        "/lib/localVoiceControls.js",
         "/lib/aiScopeControls.js",
         "/lib/i18n.js",
         "/lib/tooltipStyles.js",

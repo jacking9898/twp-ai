@@ -8,7 +8,7 @@ function harness(translate=async()=> '我们把它叫作停车楼。',recognizeH
   const context=vm.createContext({console,URL,AbortController,DOMException,performance,setTimeout,clearTimeout,
     chrome:{runtime:{onMessage:{addListener:fn=>handler=fn}},tabs:{onRemoved:{addListener(){}}}},
     twpConfig:{onReady:async()=>{},get:key=>key==='aiProfiles'?profiles:'selected'},
-    twpLocalVoiceService:{onStop:fn=>stop=fn,record:async row=>events.push(row)},
+    twpLocalVoiceService:{onStop:fn=>stop=fn,record:async row=>events.push(row),begin:async()=>{},end:async()=>({stopped:false}),releaseTab:async()=>{}},
     twpAIVoiceTranslate:async(input,signal)=>{ai.push(input);return translate(input,signal);},
     fetch:async(url,options)=>{
       const body=JSON.parse(options.body);calls.push({url,body,headers:options.headers});if(url.endsWith('/recognize-dub'))await recognizeHook(body);

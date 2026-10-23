@@ -25,7 +25,7 @@ function twpWebMVideo(width,height) {
 }
 const twpVideoDubbing = (() => {
   let session;
-  const call = request => twpAIClient.call(request);
+  const call = request => twpAIClient.call({voiceSessionId:session?.voiceSessionId,...request});
   const ad = video => video.closest('.html5-video-player')?.classList.contains('ad-showing');
   const voiceSpeed=value=>Number.isFinite(Number(value))?Math.max(.75,Math.min(2,Number(value))):1.25;
   function wav(samples,rate) {
@@ -199,7 +199,8 @@ const twpVideoDubbing = (() => {
     clearInterval(s.timer);halt(s);releaseCapture(s);restore(s);
     clearLive(s);for(const row of s.cache.values())dispose(row);s.cache.clear();
     for(const remove of s.listeners)remove();
-    void s.context.close().catch(()=>{});void call({action:'localVoiceCancel'}).catch(()=>{});
+    void s.context.close().catch(()=>{});
+    void call({action:'localVoiceEnd',voiceSessionId:s.voiceSessionId}).catch(error=>{if(!session)s.status(message+' 自动释放内存失败，请在模型服务页面重试：'+error.message,true);});
     s.status(message,error);s.onState(false);
   }
   function play(s,row,cue=null) {
@@ -347,7 +348,7 @@ const twpVideoDubbing = (() => {
     delete video.dataset.yeduPictureError;
     const context=new AudioContext();await context.resume();
     const output=context.createGain();output.gain.value=video.volume;output.connect(context.destination);
-    const s={video,context,output,watchMode,translationMode,aiProfileId,language,voiceProfileId,autoVoice,onTranscript,streamId:Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),speed:voiceSpeed(speed),status,onState,url:location.href,originalMuted:video.muted,mutedByUs:false,listeners:[],cache:new Map(),cues:[],generation:0,started:Date.now(),chunks:[],samples:0,pending:[],queue:[],live:{running:0,issued:0,next:0,ready:new Map()},quietSamples:0,speechSamples:0};session=s;onState(true);status('连接本地模型，准备中文配音…');
+    const s={video,context,output,watchMode,translationMode,aiProfileId,language,voiceProfileId,autoVoice,onTranscript,voiceSessionId:Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),streamId:Date.now().toString(36)+'_'+Math.random().toString(36).slice(2),speed:voiceSpeed(speed),status,onState,url:location.href,originalMuted:video.muted,mutedByUs:false,listeners:[],cache:new Map(),cues:[],generation:0,started:Date.now(),chunks:[],samples:0,pending:[],queue:[],live:{running:0,issued:0,next:0,ready:new Map()},quietSamples:0,speechSamples:0};session=s;onState(true);status('连接本地模型，准备中文配音…');
     try{
       const connection=await call({action:'localVoiceConnect',translationMode,aiProfileId});if(session!==s)return;
       if(prepareVoice){const voice=await prepareVoice();if(session!==s)return;s.voiceProfileId=voice.voiceProfileId;s.autoVoice=voice.autoVoice;}

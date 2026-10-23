@@ -5,7 +5,7 @@
   const pending = new Map();
   const recognitions = new Map();
   let token, connecting;
-  twpLocalVoiceService.onStop(()=>{token=null;for(const controllers of pending.values())for(const controller of controllers)controller.abort();pending.clear();});
+  twpLocalVoiceService.onStop(()=>{token=null;for(const controllers of pending.values())for(const controller of controllers)if(!controller.waitingForLease)controller.abort();});
   async function request(path, body, signal) {
     let response;
     try {
@@ -39,7 +39,7 @@
     try{return await next;}finally{if(recognitions.get(key)===next)recognitions.delete(key);}
   }
   chrome.runtime.onMessage.addListener((message,sender,reply)=>{
-    if(!['localVoiceConnect','localVoiceDub','localVoiceRecognize','localVoiceCancel','localVoiceProfiles','localVoiceProfileCreate','localVoiceReferenceText','localVoiceOpenManager','localVoicePlaybackEvent'].includes(message.action))return;
+    if(!['localVoiceConnect','localVoiceEnd','localVoiceDub','localVoiceRecognize','localVoiceCancel','localVoiceProfiles','localVoiceProfileCreate','localVoiceReferenceText','localVoiceOpenManager','localVoicePlaybackEvent'].includes(message.action))return;
     const tab=sender.tab?.id;
     // Content scripts only, supported origins including a YouTube SPA whose
     // original sender.url may still be the homepage. Never proxy arbitrary URLs.
@@ -52,6 +52,12 @@
       twpLocalVoiceService.record(row?{kind:'playing',tab,text:row.text,translated:row.translated,delay:row.delay,synchronized:row.synchronized===true}:{kind:'idle',tab,message:'当前片段结束或已暂停'}).then(()=>reply({ok:true}));return true;
     }
     const key=tab+':'+sender.documentId;
+    if(message.voiceSessionId!==undefined&&(typeof message.voiceSessionId!=='string'||!/^[a-zA-Z0-9_-]{1,80}$/.test(message.voiceSessionId))){reply({ok:false,error:'无效语音会话'});return;}
+    if(message.action==='localVoiceEnd'){
+      if(!message.voiceSessionId){reply({ok:false,error:'缺少语音会话'});return;}
+      for(const controller of pending.get(key)||[])if(controller.voiceSessionId===message.voiceSessionId)controller.abort();
+      twpLocalVoiceService.end(key,message.voiceSessionId).then(data=>reply({ok:true,...data}),error=>reply({ok:false,error:error.message}));return true;
+    }
     if(message.action==='localVoiceCancel'){for(const controller of pending.get(key)||[])controller.abort();pending.delete(key);reply({ok:true});return;}
     if(message.action==='localVoiceDub'&&(typeof message.text!=='string'||!message.text.trim()||message.text.length>500||!['en','auto','zh','zh-CN','zh-TW'].includes(message.language))){reply({ok:false,error:'第一版支持英语 → 中文，或中文字幕直接配音'});return;}
     if(message.action==='localVoiceRecognize'&&(typeof message.audio!=='string'||message.audio.length>520000||
@@ -63,9 +69,14 @@
     if(message.translationMode!==undefined&&!['custom','local'].includes(message.translationMode)){reply({ok:false,error:'无效翻译方式'});return;}
     if(message.aiProfileId!==undefined&&(typeof message.aiProfileId!=='string'||message.aiProfileId.length>100)){reply({ok:false,error:'无效 AI 模型'});return;}
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),180000);
+    controller.voiceSessionId=message.voiceSessionId;
+    controller.waitingForLease=message.action==='localVoiceConnect'&&!!message.voiceSessionId;
     if(!pending.has(key))pending.set(key,new Set());pending.get(key).add(controller);
     void(async()=>{
       if(message.action==='localVoiceConnect'){
+        if(message.voiceSessionId)await twpLocalVoiceService.begin(key,message.voiceSessionId);
+        controller.waitingForLease=false;
+        if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
         if(message.translationMode==='custom'){
           await twpConfig.onReady();const selected=message.aiProfileId||twpConfig.get('aiActiveProfile');
           if(!twpConfig.get('aiProfiles').some(profile=>profile.id===selected))throw new Error('请先在 AI 设置中配置并选择自定义翻译模型');
@@ -105,5 +116,7 @@
     }).catch(error=>reply({ok:false,error:error.name==='AbortError'?'本地配音已取消或超时':error.message})).finally(()=>{clearTimeout(timer);pending.get(key)?.delete(controller);if(!pending.get(key)?.size)pending.delete(key);});
     return true;
   });
-  chrome.tabs.onRemoved.addListener(tab=>{for(const[key,controllers]of pending)if(key.startsWith(tab+':')){for(const controller of controllers)controller.abort();pending.delete(key);}});
+  function releaseTab(tab){for(const[key,controllers]of pending)if(key.startsWith(tab+':')){for(const controller of controllers)controller.abort();pending.delete(key);}void twpLocalVoiceService.releaseTab(tab).catch(()=>{});}
+  chrome.tabs.onRemoved.addListener(releaseTab);
+  chrome.tabs.onUpdated?.addListener((tab,change)=>{if(change.status==='loading')releaseTab(tab);});
 })();

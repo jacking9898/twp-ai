@@ -55,6 +55,7 @@ void (async () => {
       </section>
     </div>`;
   const $ = id => shadow.getElementById(id);
+  twpLocalVoiceControls.mount($('main-content'),{prepend:true});
   const scopeControls = twpAIScopeControls.create({root:shadow,fields:{expertId:'domain',glossaryId:'page-glossary',styleId:'page-style'},notice:'page-ai-notice',reset:'page-ai-reset',scopeLabel:'此网页',
     onBusy:value => {$("translate").disabled = $("retranslate").disabled = value;},
     onSaved:() => {if (pageTranslator.getService() === 'openai') {pageTranslator.restorePage(); document.dispatchEvent(new Event('twp-ai-customization-changed'));}}});
