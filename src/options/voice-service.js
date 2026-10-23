@@ -18,9 +18,9 @@
     for(const step of document.querySelectorAll('#startup li'))step.classList.toggle('active',step.dataset.stage===(snapshot.state==='ready'?'ready':snapshot.state==='starting'?snapshot.stage:''));
     const events=snapshot.events||[],recognized=[...events].reverse().find(row=>row.kind==='recognized');
     $('original').textContent=recognized?.text||'尚无输出';$('translated').textContent=recognized?.translated||'尚无输出';
-    $('timings').textContent=recognized?.timings?`识别 ${recognized.timings.recognition||0} 秒 · 翻译与合成 ${recognized.timings.translationAndSpeech||0} 秒（不含采集和排队）`:'';
+    $('timings').textContent=recognized?.timings?`识别 ${Number(recognized.timings.recognition||0).toFixed(2)} 秒 · ${recognized.timings.translationAndSpeech!==undefined?'翻译与合成 '+recognized.timings.translationAndSpeech+' 秒':'AI 翻译 '+Number(recognized.timings.translation||0).toFixed(2)+' 秒 · 配音 '+Number(recognized.timings.speech||0).toFixed(2)+' 秒'}${recognized.translationModel?' · '+recognized.translationModel:''}（不含采集和排队）`:'';
     const playback=[...events].reverse().find(row=>['playing','idle'].includes(row.kind));
-    $('playback').textContent=playback?.kind==='playing'?`正在配音 · 内容延迟约 ${Number(playback.delay).toFixed(1)} 秒`:'等待下一段配音';
+    $('playback').textContent=playback?.kind==='playing'?`正在配音 · ${playback.synchronized?'画面同步，整体缓冲约':'内容延迟约'} ${Number(playback.delay).toFixed(1)} 秒`:'等待下一段配音';
     $('spoken').textContent=playback?.kind==='playing'?playback.translated:'当前没有配音播放';
     const fragment=document.createDocumentFragment();
     for(const row of [...events].reverse()){
@@ -33,11 +33,14 @@
   async function read(){const data=await chrome.storage.session.get(key);render(data[key]);}
   async function poll(){if(polling)return;polling=true;try{await call('localVoiceServiceStatus');await read();}catch(error){$('action-message').textContent=error.message;}finally{polling=false;}}
   async function action(name){busy=true;$('start').disabled=true;$('action-message').textContent='';try{await call(name);}catch(error){$('action-message').textContent=error.message;}finally{busy=false;await read();}}
+  $('ai-test').onclick=async()=>{$('ai-test').disabled=true;$('ai-result').textContent='正在调用当前自定义 AI…';try{$('ai-result').textContent=(await call('localVoiceAITranslate',{text:$('ai-sample').value})).translated;}catch(error){$('ai-result').textContent=error.message;}finally{$('ai-test').disabled=false;}};
   $('extension-id').textContent=chrome.runtime.id;
+  async function showAI(){try{const info=await call('localVoiceAIInfo'),active=info.profiles.find(profile=>profile.id===info.active);$('ai-model').textContent=active?'当前模型：'+active.name+' · '+active.model:'尚未配置自定义 AI，请先在扩展 AI 设置中保存并选择模型。';}catch(error){$('ai-model').textContent=error.message;}}
+  void showAI();
   $('start').onclick=()=>action('localVoiceServiceStart');$('stop').onclick=()=>action('localVoiceServiceStop');$('refresh').onclick=poll;
   $('clear').onclick=async()=>{await action('localVoiceServiceClear');};
   $('auto-start').onchange=async()=>{const selected=$('auto-start').checked;$('auto-start').disabled=true;try{await call('localVoiceServiceSettings',{autoStart:selected});$('action-message').textContent=selected?'已开启按需自动启动':'已关闭自动启动，可手动点击启动模型';}catch(error){$('auto-start').checked=!selected;$('action-message').textContent=error.message;}finally{$('auto-start').disabled=false;}};
-  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes[key])render(changes[key].newValue);if(area==='local'&&changes.localVoiceAutoStart)$('auto-start').checked=changes.localVoiceAutoStart.newValue!==false;});
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&(changes.aiProfiles||changes.aiActiveProfile))void showAI();if(area==='session'&&changes[key])render(changes[key].newValue);if(area==='local'&&changes.localVoiceAutoStart)$('auto-start').checked=changes.localVoiceAutoStart.newValue!==false;});
   void(async()=>{const settings=await chrome.storage.local.get('localVoiceAutoStart');$('auto-start').checked=settings.localVoiceAutoStart!==false;await read();await poll();})();
   const timer=setInterval(()=>{if(!document.hidden)void poll();},2000);window.addEventListener('pagehide',()=>clearInterval(timer),{once:true});
 })();

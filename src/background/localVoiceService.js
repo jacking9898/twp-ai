@@ -76,11 +76,17 @@ const twpLocalVoiceService = (() => {
   }
   const managerURL=()=>chrome.runtime.getURL('options/voice-service.html');
   chrome.runtime.onMessage.addListener((message,sender,reply)=>{
-    if(!['localVoiceServiceStatus','localVoiceServiceStart','localVoiceServiceStop','localVoiceServiceClear','localVoiceServiceSettings'].includes(message?.action))return;
+    if(!['localVoiceServiceStatus','localVoiceServiceStart','localVoiceServiceStop','localVoiceServiceClear','localVoiceServiceSettings','localVoiceAITranslate','localVoiceAIInfo'].includes(message?.action))return;
     if(sender.id!==chrome.runtime.id||sender.url?.split('?')[0]!==managerURL()){
       reply({ok:false,error:'请从模型服务页面操作'});return;
     }
     void(async()=>{
+      if(message.action==='localVoiceAIInfo'){await twpConfig.onReady();return {profiles:twpConfig.get('aiProfiles').map(({id,name,model})=>({id,name,model})),active:twpConfig.get('aiActiveProfile')};}
+      if(message.action==='localVoiceAITranslate'){
+        if(typeof message.text!=='string'||!message.text.trim()||message.text.length>2000||message.context!==undefined&&typeof message.context!=='string'||message.profileId!==undefined&&(typeof message.profileId!=='string'||message.profileId.length>100))throw new Error('无效翻译测试');
+        const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+        try{return {translated:await globalThis.twpAIVoiceTranslate({text:message.text,context:(message.context||'').slice(-600),profileId:message.profileId},controller.signal)};}finally{clearTimeout(timer);}
+      }
       if(message.action==='localVoiceServiceSettings'){
         if(typeof message.autoStart!=='boolean')throw new Error('无效自动启动设置');
         await chrome.storage.local.set({localVoiceAutoStart:message.autoStart});return {ok:true};

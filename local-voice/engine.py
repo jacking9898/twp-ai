@@ -84,8 +84,7 @@ class LocalEngine:
         return torch.from_numpy(samples.T.copy()), rate
 
     def warmup(self, progress=lambda stage, message: None):
-        progress("translation", "正在加载翻译模型…")
-        translated = self.translate("Welcome to local video dubbing.")
+        translated = "欢迎使用视频中文配音。"
         progress("speech", "正在加载配音与音色模型…")
         self.synthesize(translated)
         progress("recognition", "正在加载语音识别模型…")

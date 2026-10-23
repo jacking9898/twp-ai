@@ -9,8 +9,9 @@
     <label class="switch-row"><span><strong>开启语音翻译时自动启动</strong><small>需要时加载模型；关闭配音后服务保持运行，可在此停止。</small></span><input id="auto-start" type="checkbox" role="switch" checked></label>
     <p id="action-message" role="status" aria-live="polite"></p>
     <aside id="install" hidden><h3>首次连接</h3><p>Mac Chrome 需要安装一次本机连接组件。双击本地语音服务目录中的「安装本地连接.command」，完成后点击「重新检测」。之后无需手动运行启动脚本。</p><p>此安装只连接已安装的模型；尚未下载模型时，请先完成本地语音服务安装。当前自动启动支持 M 系列 Mac 与 Chrome。</p><p class="muted">当前扩展 ID：<code id="extension-id"></code></p></aside>
-    <ol id="startup" aria-label="模型启动过程"><li data-stage="translation">加载翻译模型</li><li data-stage="speech">加载配音与音色模型</li><li data-stage="recognition">加载语音识别模型</li><li data-stage="ready">可开始翻译</li></ol>
+    <ol id="startup" aria-label="模型启动过程"><li data-stage="speech">加载配音与音色模型</li><li data-stage="recognition">加载语音识别模型</li><li data-stage="ready">可开始翻译</li></ol>
   </section>
   <section class="card" aria-labelledby="live-title"><div class="section-head"><h2 id="live-title">实时输出</h2><span id="playback" class="muted">等待视频语音</span></div><p class="muted">在视频页开启语音翻译。下方区分模型返回的文字与实际正在播放的配音。</p><div class="columns"><div><h3>识别原文</h3><p id="original" class="output">尚无输出</p></div><div><h3>中文译文</h3><p id="translated" class="output">尚无输出</p></div></div><p id="timings" class="muted"></p><div class="speaking"><h3>实际配音</h3><p id="spoken">等待配音播放</p></div></section>
+  <section class="card"><h2>自定义 AI 翻译测试</h2><p class="muted">使用扩展当前选择的自定义 AI 模型，只发送文字。</p><p id="ai-model" class="muted"></p><textarea id="ai-sample" rows="3" maxlength="2000" aria-label="待翻译英语">Students were preparing to go on a bike trip.</textarea><button id="ai-test" type="button">测试当前 AI 翻译</button><p id="ai-result" role="status"></p></section>
   <section class="card"><div class="section-head"><h2>本次运行记录</h2><button id="clear" type="button">清空记录</button></div><p class="muted">最多保留 80 条，文字仅在浏览器当前会话中显示，重启浏览器后清除。</p><div id="events" role="log" aria-label="运行与翻译记录"></div></section>
 </main><script src="voice-service.js"></script></body></html>

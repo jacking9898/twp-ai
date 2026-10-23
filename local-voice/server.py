@@ -37,6 +37,7 @@ def create_app(engine=None, profile_root=None):
     cache = OrderedDict()
     inference = asyncio.Lock()
     streams = OrderedDict()
+    speech_tickets = OrderedDict()
     queued = 0
 
     @asynccontextmanager
@@ -109,7 +110,7 @@ def create_app(engine=None, profile_root=None):
         sessions[token] = time.monotonic() + 24 * 3600
         while len(sessions) > 64:
             sessions.popitem(last=False)
-        return {"token": token, "model": getattr(engine, "model_label", "local-voice"), "target": "zh-CN", "capabilities": ["live-reference", "timings"]}
+        return {"token": token, "model": getattr(engine, "model_label", "local-voice"), "target": "zh-CN", "capabilities": ["live-reference", "timings", "external-translation"]}
 
     def dub(text, language, profile_id="", live_reference=None, context=""):
         if not isinstance(profile_id, str):
@@ -120,7 +121,10 @@ def create_app(engine=None, profile_root=None):
         if key in cache:
             cache.move_to_end(key)
             return cache[key]
-        translated = engine.translate(text, language, context=context) if context else engine.translate(text, language)
+        if language.lower().startswith("zh"):
+            translated = text
+        else:
+            translated = engine.translate(text, language, context=context) if context else engine.translate(text, language)
         audio, duration = engine.synthesize(translated, reference) if reference else engine.synthesize(translated)
         if len(audio) > 4_000_000:
             raise ValueError("合成音频过长，请缩短字幕")
@@ -131,15 +135,15 @@ def create_app(engine=None, profile_root=None):
             cache.popitem(last=False)
         return result
 
-    def live_dub(text, profile_id, state, context=""):
+    def live_dub(text, profile_id, state, context="", language="en"):
         reference = state.get("reference")
         if profile_id or not reference:
-            return dub(text, "en", profile_id, context=context)
+            return dub(text, language, profile_id, context=context)
         # Source speech is temporary: never silently create a saved voice profile.
         with tempfile.TemporaryDirectory(prefix="yedu-voice-") as folder:
             path = Path(folder) / "reference.wav"
             path.write_bytes(reference["audio"])
-            return dub(text, "en", "", {"path": str(path), "text": reference["text"],
+            return dub(text, language, "", {"path": str(path), "text": reference["text"],
                 "language": "en", "key": reference["key"]}, context=context)
 
     def reference_audio(data):
@@ -190,6 +194,25 @@ def create_app(engine=None, profile_root=None):
             except (ValueError, RuntimeError, OSError, ImportError) as error:
                 raise HTTPException(503, "本地配音失败：" + str(error)[:250])
 
+    @app.post("/speak")
+    async def speak_translation(request: Request):
+        data = await body(request)
+        ticket, text = data.get("ticket"), data.get("translated")
+        if not isinstance(ticket, str) or not isinstance(text, str) or not 1 <= len(text.strip()) <= 500:
+            raise HTTPException(400, "无效中文配音请求")
+        item = speech_tickets.get(ticket)
+        if not item or item["token"] != request.headers.get("authorization", "") or time.monotonic() - item["at"] > 60:
+            raise HTTPException(400, "原声片段已过期，请继续播放重新采集")
+        speech_tickets.pop(ticket)
+        async with live_slot():
+            start = time.perf_counter()
+            try:
+                result = await asyncio.to_thread(live_dub, text.strip(), item["profile"], item["state"], language="zh")
+                return {**result, "text": item["text"], "voiceSource": item["voiceSource"],
+                        "timings": {"speech": round(time.perf_counter() - start, 3)}}
+            except (ValueError, RuntimeError, OSError, ImportError) as error:
+                raise HTTPException(503, "本地配音失败：" + str(error)[:250])
+
     @app.post("/recognize-dub")
     async def recognize(request: Request):
         data = await body(request)
@@ -205,6 +228,8 @@ def create_app(engine=None, profile_root=None):
             audio = base64.b64decode(encoded, validate=True)
         except (ValueError, binascii.Error):
             raise HTTPException(400, "无效音频")
+        if not isinstance(data.get("recognizeOnly", False), bool):
+            raise HTTPException(400, "无效识别模式")
         async with live_slot():
             def process():
                 started = time.perf_counter()
@@ -242,6 +267,21 @@ def create_app(engine=None, profile_root=None):
                         state["reference"] = {"audio": reference, "text": " ".join(state["texts"]),
                             "key": hashlib.sha256(reference).hexdigest()}
                         state["parts"] = []; state["texts"] = []
+                if data.get("recognizeOnly"):
+                    voice_source = "speaker" if auto_voice and state.get("reference") else "profile" if data.get("voiceProfileId") else "default"
+                    ticket = ""
+                    if text and not (auto_voice and not state.get("reference")):
+                        ticket = secrets.token_urlsafe(24)
+                        for old in list(speech_tickets):
+                            if time.monotonic() - speech_tickets[old]["at"] > 60:
+                                del speech_tickets[old]
+                        speech_tickets[ticket] = {"at": time.monotonic(), "token": token, "text": text,
+                            "profile": data.get("voiceProfileId", ""), "state": {"reference": state.get("reference")} if auto_voice else {}, "voiceSource": voice_source}
+                        while len(speech_tickets) > 64:
+                            speech_tickets.popitem(last=False)
+                    return {"text": text, "context": preceding, "ticket": ticket, "translated": "", "audio": "", "duration": 0,
+                        "preparingVoice": bool(text and auto_voice and not state.get("reference")), "voiceSource": voice_source,
+                        "timings": {"recognition": round(recognized - started, 3)}, "sourceDuration": round(len(samples) / 16000, 3)}
                 if not text:
                     result = {"text": "", "translated": "", "audio": "", "duration": 0}
                 elif auto_voice and not state.get("reference"):

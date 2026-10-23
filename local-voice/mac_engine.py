@@ -6,13 +6,13 @@ from engine import LocalEngine, decode_pcm
 
 
 class MacEngine(LocalEngine):
-    model_label = "Apple Silicon · MLX Whisper · Qwen3 翻译 · Qwen3-TTS 原声参考"
+    model_label = "Apple Silicon · MLX Whisper 识别 · Qwen3-TTS 原声参考"
 
     def missing(self):
         required = ["mac-models.json", "asr-mlx/config.json", "tts-mlx/config.json",
-                    "translation-mlx-4b/config.json", "reference.wav", "reference.txt"]
+                    "reference.wav", "reference.txt"]
         missing = [name for name in required if not (self.root / name).is_file()]
-        for folder in ("asr-mlx", "tts-mlx", "translation-mlx-4b"):
+        for folder in ("asr-mlx", "tts-mlx"):
             if not list((self.root / folder).glob("*.safetensors")) and not list((self.root / folder).glob("*.npz")):
                 missing.append(folder + "/weights")
         return missing
@@ -22,6 +22,8 @@ class MacEngine(LocalEngine):
             return text
         if language not in ("en", "auto"):
             raise ValueError("当前支持英语语音转简体中文")
+        if not (self.root / "translation-mlx-4b/config.json").is_file():
+            raise ValueError("未安装本地离线翻译模型，请选择自定义 AI 翻译")
         from mlx_lm import load, generate
         from mlx_lm.sample_utils import make_sampler
         if self.translator is None:

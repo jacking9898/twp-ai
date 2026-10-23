@@ -4,10 +4,13 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const root=path.resolve(__dirname,'..');
 function wav(seconds=20){const count=8000*seconds,bytes=Buffer.alloc(44+count*2);bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);bytes.writeUInt32LE(16,16);bytes.writeUInt16LE(1,20);bytes.writeUInt16LE(1,22);bytes.writeUInt32LE(8000,24);bytes.writeUInt32LE(16000,28);bytes.writeUInt16LE(2,32);bytes.writeUInt16LE(16,34);bytes.write('data',36);bytes.writeUInt32LE(count*2,40);for(let i=0;i<count;i++)bytes.writeInt16LE(Math.round(Math.sin(i*2*Math.PI*440/8000)*5000),44+i*2);return bytes;}
 (async()=>{
-  const calls=[],errors=[],profiles=[],audio=wav(),voice=wav(6),shortVoice=wav(2);let fail=false,delay=0;
+  const calls=[],errors=[],profiles=[],audio=wav(),voice=wav(6),shortVoice=wav(2);let fail=false,aiFail=false,delay=0;
   const service=http.createServer((req,res)=>{let raw='';req.on('data',data=>raw+=data);req.on('end',async()=>{
     const body=JSON.parse(raw);calls.push({path:req.url,body,headers:req.headers});if(delay)await new Promise(r=>setTimeout(r,delay));
-    let result;if(req.url==='/session')result={token:'test-token',model:'local-fixture'};
+    let result;if(req.url==='/session')result={token:'test-token',model:'local-fixture',capabilities:['external-translation']};
+    else if(req.url==='/v1/chat/completions'){res.writeHead(aiFail?401:200,{'content-type':'application/json'});return res.end(JSON.stringify(aiFail?{error:{message:'private-provider-detail'}}:{choices:[{message:{role:'assistant',content:JSON.stringify({translations:[{id:'0',text:'你好，这是自定义模型的译文。'}]})},finish_reason:'stop'}],usage:{prompt_tokens:20,completion_tokens:10,total_tokens:30}}));}
+    else if(req.url==='/recognize-dub'&&body.recognizeOnly)result={text:'Hello, welcome to the video.',context:'This is a spoken English lesson.',ticket:'fixture-ticket',voiceSource:'speaker',timings:{recognition:.2}};
+    else if(req.url==='/speak')result={text:'Hello, welcome to the video.',translated:body.translated,audio:voice.toString('base64'),duration:6,voiceSource:'speaker',timings:{speech:.3}};
     else if(req.url==='/profiles/list')result={profiles};
     else if(req.url==='/reference-text')result={text:'Hello, welcome to the video.'};
     else if(req.url==='/profiles/create'){const profile={id:'a'.repeat(32),name:body.name,language:body.language,duration:4};profiles.push(profile);result={profile};}
@@ -53,7 +56,7 @@ function wav(seconds=20){const count=8000*seconds,bytes=Buffer.alloc(44+count*2)
     if(!world)throw new Error('Extension content world missing');
     await cdp.send('Runtime.evaluate',{contextId:world,expression:'globalThis.voiceAudios=[];globalThis.OriginalVoiceAudio=Audio;globalThis.Audio=function(src){const audio=new OriginalVoiceAudio(src);voiceAudios.push(audio);return audio;};'});
     const voiceState=async()=>{const row=await cdp.send('Runtime.evaluate',{contextId:world,returnByValue:true,expression:'(()=>{const a=voiceAudios.at(-1);return a?{time:a.currentTime,rate:a.playbackRate,paused:a.paused,pitch:a.preservesPitch}:null;})()'});return row.result.value;};
-    await panel.locator('#voice-connect').click();await expect(panel.locator('#voice-status')).toContainText('已连接');
+    await panel.locator('#voice-watch-mode').selectOption('direct');await panel.locator('#voice-translation-mode').selectOption('local');await panel.locator('#voice-connect').click();await expect(panel.locator('#voice-status')).toContainText('已连接');
     // Import, transcribe, save and bind a named local voice without uploading
     // recordings to an online model or storing them in extension preferences.
     await panel.locator('#voice-learning summary').click();
@@ -114,7 +117,34 @@ function wav(seconds=20){const count=8000*seconds,bytes=Buffer.alloc(44+count*2)
     await expect.poll(()=>worker.evaluate(()=>twpConfig.get('videoVoiceProfiles')['bilibili:BV1PC4y1h7Vi'])).toBe('a'.repeat(32));
     await page.goto('https://www.bilibili.com/video/BV1PC4y1h7Vi/?p=2');await expect(panel).toHaveCount(1);await panel.locator('#player-icon').hover();await panel.locator('#player-settings').click();await panel.locator('#player-more').click();await panel.locator('#voice-profiles-refresh').click();await expect(panel.locator('#voice-profile')).toHaveValue('a'.repeat(32));
     await panel.locator('#voice-learning summary').click();await panel.locator('#voice-name').scrollIntoViewIfNeeded();await panel.locator('#settings-panel').screenshot({path:path.join(root,'.local-data/voice/profile-settings-preview.png')});
-    if(calls.some(row=>row.headers['x-yedu-voice']!=='1'||(row.path!=='/session'&&row.headers.authorization!=='Bearer test-token')))throw new Error('Missing local service authentication');
+    if(calls.filter(row=>!row.path.startsWith('/v1/')).some(row=>row.headers['x-yedu-voice']!=='1'||(row.path!=='/session'&&row.headers.authorization!=='Bearer test-token')))throw new Error('Missing local service authentication');
+    // An independent fixture account exercises the real AI SDK transport. No
+    // private settings or credentials are imported from the user's browser.
+    const id=new URL(worker.url()).host,settings=await context.newPage();
+    await settings.goto(`chrome-extension://${id}/options/ai.html`);
+    await settings.locator('#profile-name').fill('Voice fixture AI');await settings.locator('#base-url').fill(`http://127.0.0.1:${fixturePort}/v1`);
+    await settings.locator('#model').fill('fixture-voice-model');await settings.locator('#api-key').fill('fixture-only-secret');
+    await settings.getByRole('button',{name:'保存服务',exact:true}).click();await expect(settings.locator('#profile-status')).toContainText('服务已保存');
+    await page.goto('https://www.bilibili.com/video/BV1PC4y1h7Vi/?p=2');await expect(panel).toHaveCount(1);
+    await panel.locator('#player-icon').hover();await panel.locator('#player-settings').click();await panel.locator('#player-more').click();
+    await expect(panel.locator('#voice-translation-mode')).toHaveValue('custom');await panel.locator('#voice-watch-mode').selectOption('direct');await panel.locator('#voice-profiles-refresh').click();
+    await video.evaluate(v=>{v.currentTime=.1;return v.play();});await panel.locator('#voice-start').click();
+    await expect.poll(()=>calls.filter(row=>row.path==='/speak').length,{timeout:15000}).toBeGreaterThan(0);
+    await expect(page.locator('[data-yedu-live-voice]')).toHaveText('你好，这是自定义模型的译文。');
+    const aiCall=calls.find(row=>row.path==='/v1/chat/completions');
+    expect(aiCall.headers.authorization).toBe('Bearer fixture-only-secret');expect(aiCall.body.model).toBe('fixture-voice-model');
+    const prompt=JSON.parse(aiCall.body.messages.find(row=>row.role==='user').content);
+    expect(prompt.previousSource).toBe('This is a spoken English lesson.');expect(prompt.segments[0].text).toBe('Hello, welcome to the video.');
+    expect(aiCall.body.messages[0].content).toContain('natural spoken Simplified Chinese');
+    expect(calls.filter(row=>row.path==='/speak').every(row=>row.body.translated==='你好，这是自定义模型的译文。')).toBe(true);
+    expect(calls.filter(row=>!row.path.startsWith('/v1/')).some(row=>JSON.stringify(row).includes('fixture-only-secret'))).toBe(false);
+    await panel.locator('#voice-start').click();aiFail=true;
+    const spokenBefore=calls.filter(row=>row.path==='/speak').length;
+    await video.evaluate(v=>{v.currentTime=.1;return v.play();});await panel.locator('#voice-start').click();
+    await expect(panel.locator('#voice-start')).toHaveAttribute('aria-pressed','false',{timeout:15000});
+    await expect(panel.locator('#voice-status')).toContainText('密钥');await expect.poll(()=>video.evaluate(v=>v.muted)).toBe(false);
+    expect(calls.filter(row=>row.path==='/speak').length).toBe(spokenBefore);
+    expect(await panel.locator('#voice-status').textContent()).not.toContain('private-provider-detail');
     if(errors.length)throw new Error(errors.join('\n'));
     console.log(`Local voice extension passed: named voice import/capture/cancel, speaker binding across reload, voice reuse in subtitles and live mode, VTT clock, real PCM, errors, SPA, ${calls.length} local requests`);
   }finally{await context?.close();await new Promise(resolve=>service.close(resolve));}

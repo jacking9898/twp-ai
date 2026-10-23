@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 """Download public weights once, record exact revisions, preserve existing voices."""
 import json
+import argparse
 import os
 from pathlib import Path
 from huggingface_hub import HfApi, snapshot_download
@@ -12,10 +13,15 @@ MODELS = {"asr-mlx": "mlx-community/whisper-small.en-mlx",
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Install local speech models; custom AI handles translation by default.")
+    parser.add_argument("--offline-translation", action="store_true", help="Also download the optional Qwen3 offline translation model")
+    args = parser.parse_args()
     ROOT.mkdir(parents=True, exist_ok=True)
     record = ROOT / "mac-models.json"
     revisions = json.loads(record.read_text()) if record.exists() else {}
     for folder, repo in MODELS.items():
+        if folder.startswith("translation-") and not args.offline_translation:
+            continue
         revision = revisions.get(folder, {}).get("revision") or HfApi().model_info(repo).sha
         print("Downloading " + repo + " @ " + revision, flush=True)
         snapshot_download(repo, revision=revision, local_dir=ROOT / folder,

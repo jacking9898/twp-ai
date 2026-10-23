@@ -9,6 +9,8 @@ import struct
 from fastapi.testclient import TestClient
 from server import create_app
 from engine import decode_pcm
+from unittest.mock import patch
+import time
 
 
 class FakeEngine:
@@ -52,6 +54,39 @@ class ServiceTests(unittest.TestCase):
             self.assertNotIn("token", response.json())
         response = self.client.post("/dub", json={"text": "Hello", "language": "en"}, headers=self.headers)
         self.assertEqual(response.status_code, 200)
+
+    def test_external_translation_never_runs_local_translation_and_keeps_reference(self):
+        before = self.engine.calls
+        source = self.client.post('/recognize-dub', json={'audio': self.reference(), 'streamId': 'external', 'autoVoice': True, 'recognizeOnly': True}, headers=self.headers).json()
+        self.assertEqual(source['text'], 'Hello')
+        self.assertTrue(source['ticket'])
+        self.assertEqual(self.engine.calls, before)
+        foreign = self.client.post('/session', json={}, headers={'X-Yedu-Voice':'1'}).json()['token']
+        data = {'ticket': source['ticket'], 'translated': '这是自定义模型的中文译文。'}
+        self.assertEqual(self.client.post('/speak', json=data, headers={**self.headers, 'Authorization':'Bearer '+foreign}).status_code, 400)
+        response = self.client.post('/speak', json=data, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['translated'], data['translated'])
+        self.assertEqual(response.json()['voiceSource'], 'speaker')
+        self.assertEqual(self.engine.calls, before)
+        self.assertIsNotNone(self.engine.reference)
+        self.assertEqual(self.client.post('/speak', json=data, headers=self.headers).status_code, 400)
+
+    def test_external_translation_waits_for_speaker_reference_without_running_local_translation(self):
+        response = self.client.post('/recognize-dub', json={'audio': self.reference(2), 'streamId': 'short', 'autoVoice': True, 'recognizeOnly': True}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['preparingVoice'])
+        self.assertEqual(response.json()['ticket'], '')
+        self.assertEqual(self.engine.calls, 0)
+
+    def test_external_speech_rejects_expired_ticket_and_invalid_translation(self):
+        source = self.client.post('/recognize-dub', json={'audio': self.reference(), 'streamId': 'expiry', 'recognizeOnly': True}, headers=self.headers).json()
+        for value in ['', 'x' * 501, 42]:
+            self.assertEqual(self.client.post('/speak', json={'ticket': source['ticket'], 'translated': value}, headers=self.headers).status_code, 400)
+        expired = time.monotonic() + 61
+        with patch('server.time.monotonic', return_value=expired):
+            self.assertEqual(self.client.post('/speak', json={'ticket': source['ticket'], 'translated': '过期内容'}, headers=self.headers).status_code, 400)
+        self.assertEqual(self.engine.calls, 0)
 
     def test_website_origin_and_rebinding_rejected(self):
         for update in ({"Origin": "https://www.youtube.com"}, {"Host": "attacker.example"}, {"X-Yedu-Voice": "0"}):
