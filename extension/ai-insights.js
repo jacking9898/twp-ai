@@ -30,5 +30,33 @@ export async function saveTerms(source,target,entries,revision){entries=validate
 // One document's defaults are independent of target language and extracted terms.
 export async function readPreferences(source){if(!source)return {settings:{},revision:0};return await tx(['preferences'],'readonly',(t,done)=>{const r=t.objectStore('preferences').get(source);r.onsuccess=()=>done(r.result);})||{settings:{},revision:0};}
 export async function savePreferences(source,settings,revision){let conflict=false;const row=await tx(['preferences'],'readwrite',(t,done)=>{const s=t.objectStore('preferences'),r=s.get(source);r.onsuccess=()=>{if((r.result?.revision||0)!==revision){conflict=true;return;}const value={key:source,settings,revision:revision+1,updated:Date.now()};s.put(value);done(value);};});if(conflict)throw new Error('此文档的 AI 设置已在另一窗口更新，请重新打开设置');return row;}
+// Preferences follow the article, while terms and usage keep their existing keys.
+// Keep content parameters (lesson, page, v, etc.) and hash-router paths distinct.
+export function preferenceURL(value){
+  const url=new URL(value);
+  for(const key of [...url.searchParams.keys()])if(/^(?:utm_.+|_gl|_ga|gclid|dclid|fbclid|msclkid|mc_cid|mc_eid|spm|spm_id_from|vd_source)$/i.test(key))url.searchParams.delete(key);
+  url.search=url.searchParams.toString();
+  if(!/^#(?:\/|!|\?)/.test(url.hash))url.hash='';
+  return url.href;
+}
+export async function preferenceSourcesOf(request,sender){
+  const legacySource=await sourceOf(request,sender);
+  if(sender.tab&&/^https?:/.test(sender.url||'')){
+    let url=sender.url;
+    // Chrome's document URL can retain an SPA's initial route. The top tab URL
+    // is browser supplied; only use it when it still belongs to this origin.
+    if(sender.frameId===0&&sender.tab.url){try{if(new URL(sender.tab.url).origin===new URL(url).origin)url=sender.tab.url;}catch{}}
+    const canonical=preferenceURL(url);
+    return {source:'web:'+await digest(canonical),legacySource:canonical===preferenceURL(sender.url)?legacySource:''};
+  }
+  return {source:legacySource,legacySource};
+}
+export async function readScopedPreferences(source,legacySource){
+  const current=await readPreferences(source);
+  if(current.key||!source||!legacySource||legacySource===source)return current;
+  const legacy=await readPreferences(legacySource);if(!legacy.key)return current;
+  // Copy old exact-URL settings once. A concurrent save/reset always wins.
+  try{return await savePreferences(source,legacy.settings,0);}catch(error){const saved=await readPreferences(source);if(saved.key)return saved;throw error;}
+}
 export async function sourceOf(request,sender){if(sender.url?.split('?')[0]===chrome.runtime.getURL('options/pdf.html') && /^pdf:[a-f0-9]{64}$/.test(request.documentKey||''))return request.documentKey;if(sender.tab && /^https?:/.test(sender.url||''))return 'web:'+await digest(new URL(sender.url).href);return '';}
 export async function sessionOf(sender,source=""){return digest(`${source}:${sender.tab?.id??'extension'}:${sender.frameId??0}:${sender.documentId||sender.url}`);}

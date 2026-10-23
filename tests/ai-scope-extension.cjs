@@ -14,7 +14,7 @@ const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),
  const track=()=>context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));track();
  try {
   let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');const base=`chrome-extension://${worker.url().split('/')[2]}`;
-  await worker.evaluate(async()=>{await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');twpConfig.set('pdfAutoTranslate',false);twpConfig.set('pageTranslatorService','openai');twpConfig.set('targetLanguage','zh-CN');twpConfig.set('aiTranslationSettings',{domain:'general',styleId:'faithful',glossaryId:'public-default',acronyms:'keep',glossary:[['attention','全局注意力']]});});
+  await worker.evaluate(async()=>{await twpConfig.onReady();twpConfig.set('showReleaseNotes','no');twpConfig.set('pdfAutoTranslate',false);twpConfig.set('pageTranslatorService','openai');twpConfig.set('targetLanguages',['zh-CN','en','es']);twpConfig.set('targetLanguage','zh-CN');twpConfig.set('aiTranslationSettings',{domain:'general',styleId:'faithful',glossaryId:'public-default',acronyms:'keep',glossary:[['attention','全局注意力']]});});
   const settings=await context.newPage();await settings.goto(base+'/options/ai.html');
   await settings.locator('#profile-name').fill('Scope model');await settings.locator('#base-url').fill(`http://127.0.0.1:${server.address().port}/v1`);await settings.locator('#model').fill('scope-model');await settings.locator('#profile-form button[type=submit]').click();await expect(settings.locator('#profile-status')).toContainText('服务已保存');
   const webURL='https://scope.test/article?a=1';
@@ -47,6 +47,11 @@ const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),
   await choose(a,'domain','ml');await choose(a,'page-glossary','public-tech');
   // Scoped selections survive refresh; another URL retains inherited defaults.
   await a.reload();await a.locator('#twp-floating #toggle').hover();await a.locator('#twp-floating #settings').click();await expect(a.locator('#twp-floating #domain')).toBeEnabled();await expect(a.locator('#twp-floating #domain')).toHaveValue('ml');
+  // Tracking parameters may change on a bookmark or Google navigation. Scope
+  // restoration and the actual AI prompt must use the same stable identity.
+  await a.goto(webURL+'&_gl=rotated-tracking&utm_source=bookmark#lesson');await a.locator('#twp-floating #toggle').hover();await a.locator('#twp-floating #settings').click();
+  await expect(a.locator('#twp-floating #domain')).toBeEnabled();await expect(a.locator('#twp-floating #domain')).toHaveValue('ml');await expect(a.locator('#twp-floating #page-glossary')).toHaveValue('public-tech');await expect(a.locator('#twp-floating #page-style')).toHaveValue('academic');
+  await translateWeb(a);expect(calls.at(-1).messages[0].content).toContain('Use established machine learning');expect(calls.at(-1).messages[0].content).toContain('formal, restrained academic');expect(calls.at(-1).messages[0].content).toContain('机器学习');
   await a.screenshot({path:path.resolve('build/web-ai-scope-preview.png')});
   const buffer=pdfFixture({pages:[['Machine Learning uses an Algorithm, model and attention.'],['Machine Learning on the second page.']]});
   const key='pdf:'+crypto.createHash('sha256').update(buffer).digest('hex');

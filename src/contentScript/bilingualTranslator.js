@@ -8,7 +8,9 @@ const bilingualTranslator = (() => {
     "script", "style", "noscript", "template", "textarea", "input",
     "select", "button", "pre", "code", "kbd", "svg", "math",
     "mjx-container", "canvas", "video", "audio", "iframe", "object",
-    "nav", '[role="navigation"]', '[role="button"]', '[role="menu"]',
+    // Devsite quiz answers use role=button for the whole prose row. Its child
+    // option/explanation text can be translated without replacing the control.
+    "nav", '[role="navigation"]', '[role="button"]:not(devsite-multiple-choice .devsite-multiple-choice-answer)', '[role="menu"]',
     '[translate="no"]', ".notranslate", marker,
     "#disqussions_wrapper", "#disqussions_overlay", "#disqus_thread", ".disqussion",
   ].join(",");

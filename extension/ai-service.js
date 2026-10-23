@@ -3,7 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import presets from "../src/lib/aiPresets.js";
 import {cachePolicy, digest, beginWrite, finishWrite, readCache, writeCache, clearCache, pruneCache, cacheStats, listCache, cacheDetail, deleteCache} from "./translation-cache.js";
 
-import {containsTerm, usageOrigin, usageOf, recordUsage, usageStats, clearUsage, readTerms, saveTerms, validateTerms, sourceOf, sessionOf, readPreferences, savePreferences} from "./ai-insights.js";
+import {containsTerm, usageOrigin, usageOf, recordUsage, usageStats, clearUsage, readTerms, saveTerms, validateTerms, sourceOf, sessionOf, preferenceSourcesOf, readScopedPreferences, savePreferences} from "./ai-insights.js";
 import {fetchAI, describeAIError, requestLifetime} from './ai-transport.js';
 
 class PublicError extends Error {}
@@ -260,7 +260,7 @@ async function translate(input, signal, profileOverride, prepared) {
   const customExperts = prepared?.customExperts || twpConfig.get("aiCustomExperts");
   const customGlossaries = prepared?.customGlossaries || twpConfig.get("aiCustomGlossaries");
   const dictionary = prepared?.dictionary || [...twpConfig.get("customDictionary").entries()];
-  const preferences = prepared ? null : !input.privateContext ? await readPreferences(input.sourceKey) : {settings:{}};
+  const preferences = prepared ? null : !input.privateContext ? await readScopedPreferences(input.preferenceSourceKey||input.sourceKey,input.preferenceSourceKey?input.preferenceLegacySourceKey:input.sourceKey) : {settings:{}};
   const customization = prepared ? {...prepared.customization, segments} : scopedCustomization(input, preferences.settings, customExperts, customGlossaries);
   const settings = resolveCustomization(customization, globals, customExperts, customGlossaries);
   const scoped = prepared?.scoped || (!input.privateContext ? await readTerms(input.sourceKey, input.targetLanguage || "zh-CN") : {entries:[]});
@@ -367,10 +367,10 @@ async function handle(request, sender) {
   await twpConfig.onReady();
   if (["aiScopeRead", "aiScopeSave"].includes(request.action)) {
     if (sender.id !== chrome.runtime.id) throw new PublicError('无法访问文档 AI 设置');
-    const source = await sourceOf(request,sender);
+    const {source,legacySource} = await preferenceSourcesOf(request,sender);
     if (!source) throw new PublicError('请从网页控制面板或已打开的 PDF 设置');
     const privateContext = !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext;
-    const row = privateContext ? {settings:{},revision:0} : await readPreferences(source);
+    const row = privateContext ? {settings:{},revision:0} : await readScopedPreferences(source,legacySource);
     const settings = scopedCustomization({}, row.settings, twpConfig.get('aiCustomExperts'), twpConfig.get('aiCustomGlossaries'));
     if (request.action === 'aiScopeRead') return {source,settings,revision:row.revision,privateContext};
     if (privateContext) throw new PublicError('无痕窗口不保存文档 AI 设置');
@@ -448,7 +448,8 @@ async function handle(request, sender) {
       const profile = request.action === "aiTestProfile"
         ? normalizeProfile(request.profile, (await storage("getAll")).find(p => p.id === request.profile.id)) : undefined;
       const sourceKey=await sourceOf(request,sender);
-      return await translate({...request, cacheLabel:request.cacheLabel||sender.tab?.title, usageOrigin:usageOrigin(request,sender), sourceKey,usageSession:await sessionOf(sender,sourceKey), privateContext: !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext}, controller.signal, profile);
+      const preferences=await preferenceSourcesOf(request,sender);
+      return await translate({...request, cacheLabel:request.cacheLabel||sender.tab?.title, usageOrigin:usageOrigin(request,sender), sourceKey,preferenceSourceKey:preferences.source,preferenceLegacySourceKey:preferences.legacySource,usageSession:await sessionOf(sender,sourceKey), privateContext: !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext}, controller.signal, profile);
     } catch (error) { throw new PublicError(safeError(error, controller.signal)); }
     finally { stop(); requests.delete(key); }
   }

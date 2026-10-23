@@ -1174,3 +1174,25 @@ test("inline quiz headings with line breaks keep each translation below its own 
   await expect(page.locator("#quiz-heading [data-twp-bilingual]")).toHaveCount(0);
   expect(await page.locator("#quiz-item").innerHTML()).toBe(before.replace("First question paragraph.", "Updated first paragraph."));
 });
+
+test('Devsite quiz answers and revealed explanations translate while answer controls stay functional',async({page})=>{
+ const quiz=`<devsite-multiple-choice rendered>
+  <div class="devsite-multiple-choice-question">Which statements about mitigating bias are true?</div>
+  <div id="answer-one" class="devsite-multiple-choice-answer" answer-id="1" role="button" tabindex="0"><div class="devsite-multiple-choice-option">Both techniques penalize discrepancies tied to sensitive attributes.</div><div class="devsite-multiple-choice-explanation" style="display:none">Both techniques aim to mitigate bias in predictions.</div></div>
+  <div id="answer-two" class="devsite-multiple-choice-answer" answer-id="2" role="button" tabindex="0"><div class="devsite-multiple-choice-option">Adding more examples always helps.</div><div class="devsite-multiple-choice-explanation" style="display:none">The composition of the training data also matters.</div></div>
+ </devsite-multiple-choice><div id="ordinary-action" role="button">Do not translate ordinary action</div><div class="devsite-multiple-choice-answer" role="button">Do not translate a lookalike outside a quiz</div>`;
+ await setup(page,fixture.replace('<main>','<main>'+quiz));
+ await page.evaluate(()=>{window.answerNode=document.getElementById('answer-one');window.quizClicks=0;answerNode.addEventListener('click',()=>{quizClicks++;answerNode.classList.toggle('selected');answerNode.querySelector('.devsite-multiple-choice-explanation').style.display='block';});});
+ await translate(page);
+ await expect(page.locator('.devsite-multiple-choice-option [data-twp-bilingual]')).toHaveCount(2);
+ await expect(page.locator('.devsite-multiple-choice-explanation [data-twp-bilingual]')).toHaveCount(0);
+ await expect(page.locator('#ordinary-action [data-twp-bilingual]')).toHaveCount(0);
+ expect(await page.evaluate(()=>testRequests.flatMap(r=>r.sourceArray2d.flat()).join(' '))).not.toContain('lookalike outside');
+ await page.locator('#answer-one .devsite-multiple-choice-option [data-twp-bilingual]').click();
+ await expect(page.locator('#answer-one')).toHaveClass(/selected/);
+ await expect(page.locator('#answer-one .devsite-multiple-choice-explanation [data-twp-bilingual]')).toHaveText('中文：Both techniques aim to mitigate bias in predictions.');
+ expect(await page.evaluate(()=>document.getElementById('answer-one')===answerNode&&quizClicks===1)).toBe(true);
+ await page.evaluate(()=>pageTranslator.restorePage());await expect(page.locator('[data-twp-bilingual]')).toHaveCount(0);
+ await expect(page.locator('#answer-one .devsite-multiple-choice-option')).toHaveText('Both techniques penalize discrepancies tied to sensitive attributes.');
+ await page.locator('#answer-one .devsite-multiple-choice-option').click();expect(await page.evaluate(()=>quizClicks)).toBe(2);
+});
