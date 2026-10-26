@@ -27,7 +27,8 @@ void (async () => {
       <section id="panel" hidden aria-label="控制面板"><div class="heading"><button id="back" hidden aria-label="返回控制面板">←</button><strong id="panel-title">控制面板</strong><button id="close" aria-label="关闭面板">关闭</button></div><div id="main-content">
         <div class="pair"><div><label for="target">目标语言</label><select id="target"></select></div><div><label for="mode">显示方式</label><select id="mode"><option value="bilingual">双语对照</option><option value="translated">仅译文</option></select></div></div>
         <label for="engine">翻译服务</label><select id="engine"><option value="bing">微软翻译</option><option value="google">谷歌翻译</option><option value="yandex">Yandex</option><option value="openai">AI · 自定义模型</option></select>
-        <div id="ai-options" hidden><label for="profile">模型服务</label><select id="profile"></select><label for="domain">此网页的 AI 专家</label><select id="domain"></select><label for="page-glossary">此网页的术语库</label><select id="page-glossary"></select><label for="page-style">此网页的翻译风格</label><select id="page-style"></select><p id="page-ai-notice" class="note" role="status"></p><button id="page-ai-reset" class="action" style="width:100%;margin-top:8px">恢复跟随全局</button></div>
+        <label class="check" for="continue-reading">自动翻译本站下一篇<input type="checkbox" role="switch" id="continue-reading"></label><p class="note">本标签页点过翻译后生效；恢复原文即停止。</p>
+        <div id="ai-options" hidden><label for="profile">模型服务</label><select id="profile"></select><label for="ai-setting-scope">设置应用于</label><select id="ai-setting-scope"><option value="site">本网站（后续文章共用）</option><option value="page">仅此网页</option></select><label for="domain">AI 专家</label><select id="domain"></select><label for="page-glossary">术语库</label><select id="page-glossary"></select><label for="page-style">翻译风格</label><select id="page-style"></select><p id="page-ai-notice" class="note" role="status"></p><button id="page-ai-reset" class="action" style="width:100%;margin-top:8px">恢复跟随全局</button></div>
         <div id="cache-options" hidden><label for="cache-duration">AI 缓存时间</label><select id="cache-duration"><option value="0">关闭缓存</option><option value="1">1 小时</option><option value="24">1 天</option><option value="168">7 天</option><option value="720">30 天</option></select><button id="cache-manage" class="action" type="button">查看与管理缓存</button></div>
         <button id="translate" class="action primary">翻译网页</button><button id="retranslate" class="action" hidden style="width:100%;margin-top:8px">重新翻译（跳过缓存）</button><p id="status" role="status" aria-live="polite"></p>
         <div class="quick-grid">
@@ -56,9 +57,10 @@ void (async () => {
     </div>`;
   const $ = id => shadow.getElementById(id);
   twpLocalVoiceControls.mount($('main-content'),{prepend:true});
-  const scopeControls = twpAIScopeControls.create({root:shadow,fields:{expertId:'domain',glossaryId:'page-glossary',styleId:'page-style'},notice:'page-ai-notice',reset:'page-ai-reset',scopeLabel:'此网页',
+  const scopeControls = twpAIScopeControls.create({root:shadow,fields:{expertId:'domain',glossaryId:'page-glossary',styleId:'page-style'},notice:'page-ai-notice',reset:'page-ai-reset',scopeLabel:'此网页',scopeField:'ai-setting-scope',
     onBusy:value => {$("translate").disabled = $("retranslate").disabled = value;},
     onSaved:() => {if (pageTranslator.getService() === 'openai') {pageTranslator.restorePage(); document.dispatchEvent(new Event('twp-ai-customization-changed'));}}});
+  document.addEventListener('twp-page-navigated',()=>{if(!$("panel").hidden)void scopeControls.load();});
   let hoverTimer, closeTimer;
   let drag = null, dragged = false;
   document.documentElement.appendChild(host);
@@ -95,6 +97,7 @@ void (async () => {
     $("target").replaceChildren(...Object.entries(twpLang.getLanguageList()).map(([code, name]) => new Option(name, code)));
     $("target").value = twpConfig.get("targetLanguage");
     $("engine").value = pageTranslator.getService();
+    $("continue-reading").checked = twpConfig.get("continueReadingTranslation");
     const ai = $("engine").value === "openai";
     $("mode").value = ai ? "bilingual" : twpConfig.get("pageTranslationMode");
     $("mode").disabled = ai;
@@ -150,6 +153,7 @@ void (async () => {
   $("translate").onclick = toggle;
   $("retranslate").onclick = () => pageTranslator.translatePage(twpConfig.get("targetLanguage"), {forceRefresh: true});
   $("cache-duration").onchange = () => twpConfig.set("aiCacheSettings", {enabled: $("cache-duration").value !== "0", ttlHours: Number($("cache-duration").value) || 168});
+  $("continue-reading").onchange = () => twpConfig.set("continueReadingTranslation", $("continue-reading").checked);
   $('cache-manage').onclick=()=>twpAIClient.call({action:'aiOpenCache'}).catch(error=>{$('status').textContent=error.message;});
   $("settings").onclick = () => $("panel").hidden ? openPanel() : closePanel();
   $("close").onclick = () => { closePanel(); $("toggle").focus(); };

@@ -400,6 +400,9 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
         currentTargetLanguage = newvalue;
         if (pageLanguageState !== "original") pageTranslator.translatePage(newvalue);
         break;
+      case "continueReadingTranslation":
+        if (newvalue && pageLanguageState !== "original") rememberReading();
+        break;
     }
   });
 
@@ -1152,8 +1155,11 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
     pageLanguageState = state;
     chrome.runtime.sendMessage({ action: "setPageLanguageState", pageLanguageState }, checkedLastError);
     pageLanguageStateObservers.forEach(callback => callback(pageLanguageState));
-    if (state === "translated" && currentPageTranslatorService === "openai" && window === window.top && typeof twpAIClient !== "undefined") {
-      void twpAIClient.call({action: "aiRememberPage", targetLanguage: currentTargetLanguage}).catch(() => {});
+  }
+
+  function rememberReading() {
+    if (window === window.top && typeof twpAIClient !== "undefined" && twpConfig.get("continueReadingTranslation")) {
+      void twpAIClient.call({action:"aiRememberPage",targetLanguage:currentTargetLanguage,service:currentPageTranslatorService}).catch(() => {});
     }
   }
 
@@ -1197,6 +1203,7 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
     }
 
     setPageLanguageState(bilingual ? "translating" : "translated");
+    rememberReading();
     currentPageLanguage = currentTargetLanguage;
 
     if (bilingual) {
@@ -1548,11 +1555,47 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
     }
   });
   if (window === window.top && typeof twpAIClient !== "undefined") {
-    const initialGeneration = fooCount;
-    void twpAIClient.call({action: "aiRecallPage"}).then(recent => {
-      if (recent.targetLanguage && initialGeneration === fooCount && pageLanguageState === "original" && currentPageTranslatorService === "openai" && !twpConfig.get("neverTranslateSites").includes(location.hostname)) {
-        pageTranslator.translatePage(recent.targetLanguage);
-      }
-    }).catch(() => {});
+    const allowed = () => twpConfig.get("continueReadingTranslation") &&
+      !twpConfig.get("neverTranslateSites").includes(location.hostname) &&
+      !twpConfig.get("neverTranslateLangs").includes(originalTabLanguage);
+    function recallReading(persisted = false) {
+      const generation = fooCount;
+      void twpAIClient.call({action:"aiRecallPage"}).then(recent => {
+        if (generation !== fooCount) return;
+        if (recent.targetLanguage && allowed()) {
+          if (pageLanguageState === "original") {
+            currentPageTranslatorService = recent.service || currentPageTranslatorService;
+            pageTranslator.translatePage(recent.targetLanguage);
+          }
+        } else if (persisted && pageLanguageState !== "original") pageTranslator.restorePage();
+      }).catch(() => {});
+    }
+    // Client-side chapter changes do not load another content script. End the
+    // old request/session so late results and paragraph records cannot leak
+    // into the new chapter. Ordinary section anchors keep their current work.
+    const route = () => {
+      const url = new URL(location.href);
+      if (!/^#(?:\/|!|\?)/.test(url.hash)) url.hash = "";
+      return url.href;
+    };
+    let readingRoute = route(), routeTimer, resumeTimer;
+    function checkRoute() {
+      const next = route();
+      if (readingRoute === next) return;
+      readingRoute = next;
+      document.dispatchEvent(new Event('twp-page-navigated'));
+      clearTimeout(resumeTimer);
+      if (pageLanguageState === "original") return;
+      pageTranslator.restorePage(true);
+      const generation = fooCount;
+      resumeTimer = setTimeout(() => {
+        if (generation === fooCount && readingRoute === route() && allowed()) pageTranslator.translatePage(currentTargetLanguage);
+      },200);
+    }
+    const watchRoute = () => {clearInterval(routeTimer);routeTimer=setInterval(checkRoute,250);};
+    window.addEventListener("pagehide", () => {clearInterval(routeTimer);clearTimeout(resumeTimer);});
+    window.addEventListener("pageshow", event => {watchRoute();if(event.persisted)recallReading(true);});
+    watchRoute();
+    pageTranslator.onGetOriginalTabLanguage(() => recallReading());
   }
 });

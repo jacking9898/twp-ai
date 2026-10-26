@@ -40,14 +40,11 @@ export function preferenceURL(value){
   return url.href;
 }
 export async function preferenceSourcesOf(request,sender){
-  const legacySource=await sourceOf(request,sender);
+  const legacySource=sender.tab&&/^https?:/.test(sender.url||'')?'web:'+await digest(new URL(sender.url).href):await sourceOf(request,sender);
   if(sender.tab&&/^https?:/.test(sender.url||'')){
-    let url=sender.url;
-    // Chrome's document URL can retain an SPA's initial route. The top tab URL
-    // is browser supplied; only use it when it still belongs to this origin.
-    if(sender.frameId===0&&sender.tab.url){try{if(new URL(sender.tab.url).origin===new URL(url).origin)url=sender.tab.url;}catch{}}
+    const url=documentURLOf(sender);
     const canonical=preferenceURL(url);
-    return {source:'web:'+await digest(canonical),legacySource:canonical===preferenceURL(sender.url)?legacySource:''};
+    return {source:'web:'+await digest(canonical),legacySource:canonical===preferenceURL(sender.url)?legacySource:'',siteSource:'site:'+await digest(new URL(url).origin)};
   }
   return {source:legacySource,legacySource};
 }
@@ -58,5 +55,25 @@ export async function readScopedPreferences(source,legacySource){
   // Copy old exact-URL settings once. A concurrent save/reset always wins.
   try{return await savePreferences(source,legacy.settings,0);}catch(error){const saved=await readPreferences(source);if(saved.key)return saved;throw error;}
 }
-export async function sourceOf(request,sender){if(sender.url?.split('?')[0]===chrome.runtime.getURL('options/pdf.html') && /^pdf:[a-f0-9]{64}$/.test(request.documentKey||''))return request.documentKey;if(sender.tab && /^https?:/.test(sender.url||''))return 'web:'+await digest(new URL(sender.url).href);return '';}
+export async function readEffectivePreferences(source,legacySource,siteSource,normalize=settings=>settings){
+  const [page,site]=await Promise.all([readScopedPreferences(source,legacySource),siteSource?readPreferences(siteSource):{settings:{}}]);
+  return {...page,settings:{...normalize(site.settings),...normalize(page.settings)}};
+}
+// A website edit also removes this page's older overrides in one transaction.
+// Other pages' explicit overrides and all PDF preferences remain independent.
+export async function saveSitePreferences(source,pageSource,settings,revision,pageRevision){
+  let conflict=false;
+  const row=await tx(['preferences'],'readwrite',(t,done)=>{
+    const store=t.objectStore('preferences'),site=store.get(source),page=store.get(pageSource);
+    let ready=0;const save=()=>{if(++ready!==2)return;if((site.result?.revision||0)!==revision||(page.result?.revision||0)!==pageRevision){conflict=true;return;}
+      const value={key:source,settings,revision:revision+1,updated:Date.now()};store.put(value);
+      store.put({key:pageSource,settings:{},revision:pageRevision+1,updated:Date.now()});done(value);
+    };site.onsuccess=page.onsuccess=save;
+  });
+  if(conflict)throw new Error('此网站或网页的 AI 设置已在另一窗口更新，请重新打开设置');return row;
+}
+// A top-frame SPA keeps its initial sender.url in Chrome. Use only the
+// browser-supplied current tab URL, constrained to the document's origin.
+export function documentURLOf(sender){let url=sender.url;if(sender.frameId===0&&sender.tab?.url){try{if(new URL(sender.tab.url).origin===new URL(url).origin)url=sender.tab.url;}catch{}}return url;}
+export async function sourceOf(request,sender){if(sender.url?.split('?')[0]===chrome.runtime.getURL('options/pdf.html') && /^pdf:[a-f0-9]{64}$/.test(request.documentKey||''))return request.documentKey;if(sender.tab && /^https?:/.test(sender.url||''))return 'web:'+await digest(new URL(documentURLOf(sender)).href);return '';}
 export async function sessionOf(sender,source=""){return digest(`${source}:${sender.tab?.id??'extension'}:${sender.frameId??0}:${sender.documentId||sender.url}`);}

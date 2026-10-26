@@ -3,7 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import presets from "../src/lib/aiPresets.js";
 import {cachePolicy, digest, beginWrite, finishWrite, readCache, writeCache, clearCache, pruneCache, cacheStats, listCache, cacheDetail, deleteCache} from "./translation-cache.js";
 
-import {containsTerm, usageOrigin, usageOf, recordUsage, usageStats, clearUsage, readTerms, saveTerms, validateTerms, sourceOf, sessionOf, preferenceSourcesOf, readScopedPreferences, savePreferences} from "./ai-insights.js";
+import {containsTerm, usageOrigin, usageOf, recordUsage, usageStats, clearUsage, readTerms, saveTerms, validateTerms, sourceOf, sessionOf, documentURLOf, preferenceSourcesOf, readPreferences, readScopedPreferences, readEffectivePreferences, savePreferences, saveSitePreferences} from "./ai-insights.js";
 import {fetchAI, describeAIError, requestLifetime} from './ai-transport.js';
 
 class PublicError extends Error {}
@@ -260,7 +260,7 @@ async function translate(input, signal, profileOverride, prepared) {
   const customExperts = prepared?.customExperts || twpConfig.get("aiCustomExperts");
   const customGlossaries = prepared?.customGlossaries || twpConfig.get("aiCustomGlossaries");
   const dictionary = prepared?.dictionary || [...twpConfig.get("customDictionary").entries()];
-  const preferences = prepared ? null : !input.privateContext ? await readScopedPreferences(input.preferenceSourceKey||input.sourceKey,input.preferenceSourceKey?input.preferenceLegacySourceKey:input.sourceKey) : {settings:{}};
+  const preferences = prepared ? null : !input.privateContext ? await readEffectivePreferences(input.preferenceSourceKey||input.sourceKey,input.preferenceSourceKey?input.preferenceLegacySourceKey:input.sourceKey,input.preferenceSiteSourceKey,saved=>scopedCustomization({},saved,customExperts,customGlossaries)) : {settings:{}};
   const customization = prepared ? {...prepared.customization, segments} : scopedCustomization(input, preferences.settings, customExperts, customGlossaries);
   const settings = resolveCustomization(customization, globals, customExperts, customGlossaries);
   const scoped = prepared?.scoped || (!input.privateContext ? await readTerms(input.sourceKey, input.targetLanguage || "zh-CN") : {entries:[]});
@@ -367,12 +367,18 @@ async function handle(request, sender) {
   await twpConfig.onReady();
   if (["aiScopeRead", "aiScopeSave"].includes(request.action)) {
     if (sender.id !== chrome.runtime.id) throw new PublicError('无法访问文档 AI 设置');
-    const {source,legacySource} = await preferenceSourcesOf(request,sender);
-    if (!source) throw new PublicError('请从网页控制面板或已打开的 PDF 设置');
+    const {source:pageSource,legacySource,siteSource} = await preferenceSourcesOf(request,sender);
+    if (!pageSource) throw new PublicError('请从网页控制面板或已打开的 PDF 设置');
+    if (request.scope && !['site','page'].includes(request.scope)) throw new PublicError('设置应用范围无效');
+    const website=request.scope==='site';
+    if(website&&!siteSource)throw new PublicError('PDF 设置仅用于当前文档');
+    const source=website?siteSource:pageSource;
     const privateContext = !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext;
-    const row = privateContext ? {settings:{},revision:0} : await readScopedPreferences(source,legacySource);
+    const page=privateContext?{settings:{},revision:0}:await readScopedPreferences(pageSource,legacySource);
+    let site=privateContext||!siteSource?{settings:{},revision:0}:await readPreferences(siteSource);
+    const row=website?site:page;
     const settings = scopedCustomization({}, row.settings, twpConfig.get('aiCustomExperts'), twpConfig.get('aiCustomGlossaries'));
-    if (request.action === 'aiScopeRead') return {source,settings,revision:row.revision,privateContext};
+    if (request.action === 'aiScopeRead') return {source,settings,revision:row.revision,pageRevision:page.revision,hasPageSettings:Object.keys(page.settings).length>0,scope:website?'site':'page',inheritedSettings:website?{}:scopedCustomization({},site.settings,twpConfig.get('aiCustomExperts'),twpConfig.get('aiCustomGlossaries')),privateContext};
     if (privateContext) throw new PublicError('无痕窗口不保存文档 AI 设置');
     const value = request.settings;
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['expertId','styleId','glossaryId'].includes(key))) throw new PublicError('文档 AI 设置格式无效');
@@ -382,7 +388,7 @@ async function handle(request, sender) {
       if (typeof value[key] !== 'string' || !catalog.some(item => item.id === value[key])) throw new PublicError('所选专家、风格或术语库已删除，请重新选择');
       normalized[key] = value[key];
     }
-    try {const saved = await savePreferences(source,normalized,request.revision);return {source,settings:saved.settings,revision:saved.revision};}
+    try {const saved = website?await saveSitePreferences(source,pageSource,normalized,request.revision,request.pageRevision):await savePreferences(source,normalized,request.revision);return {source,settings:saved.settings,revision:saved.revision,pageRevision:website?request.pageRevision+1:saved.revision};}
     catch (error) {throw new PublicError(error.message);}
   }
   if(request.action.startsWith("aiInsight")) return await insights(request,sender);
@@ -449,7 +455,7 @@ async function handle(request, sender) {
         ? normalizeProfile(request.profile, (await storage("getAll")).find(p => p.id === request.profile.id)) : undefined;
       const sourceKey=await sourceOf(request,sender);
       const preferences=await preferenceSourcesOf(request,sender);
-      return await translate({...request, cacheLabel:request.cacheLabel||sender.tab?.title, usageOrigin:usageOrigin(request,sender), sourceKey,preferenceSourceKey:preferences.source,preferenceLegacySourceKey:preferences.legacySource,usageSession:await sessionOf(sender,sourceKey), privateContext: !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext}, controller.signal, profile);
+      return await translate({...request, cacheLabel:request.cacheLabel||sender.tab?.title, usageOrigin:usageOrigin(request,sender), sourceKey,preferenceSourceKey:preferences.source,preferenceLegacySourceKey:preferences.legacySource,preferenceSiteSourceKey:preferences.siteSource,usageSession:await sessionOf(sender,sourceKey), privateContext: !!sender.tab?.incognito || !!chrome.extension?.inIncognitoContext}, controller.signal, profile);
     } catch (error) { throw new PublicError(safeError(error, controller.signal)); }
     finally { stop(); requests.delete(key); }
   }
@@ -466,7 +472,9 @@ chrome.tabs.onRemoved.addListener(tabId => {
   void chrome.storage?.session?.remove(`aiRecentPage:${tabId}`);
   void chrome.storage?.session?.get(`aiInsightOwner:${tabId}`).then(data=>{const id=data[`aiInsightOwner:${tabId}`];if(id)return chrome.storage.session.remove([`aiInsightOwner:${tabId}`,`aiInsightSnapshot:${id}`]);});
 });
-chrome.tabs.onUpdated.addListener((tabId, change) => {
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  // Internal/restricted pages can omit URL fields despite a completed load.
+  if (change.url || change.status === "complete") void endReadingOnNavigation(tabId,change.url || tab?.url || "");
   if (change.status === "loading") {
     for (const entry of requests.values()) if (entry.scope.startsWith(`${tabId}:`)) entry.controller.abort();
   }
@@ -474,30 +482,47 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
 twpConfig.onReady().then(publishProfiles).catch(() => {});
 twpConfig.onChanged(name => {
   if (name === "aiCacheSettings") void pruneCache(cachePolicy(twpConfig.get("aiCacheSettings")));
+  if (name === "continueReadingTranslation" && !twpConfig.get(name)) void forgetAllPages();
 });
 void twpConfig.onReady().then(() => pruneCache(cachePolicy(twpConfig.get("aiCacheSettings"))));
 
-// Session-only navigation intent: refreshing a previously translated tab may
-// reuse its translations. Unrelated pages/tabs never acquire automatic AI use.
+// Session-only reading intent, independent of the translation cache. A manual
+// translation continues within this tab and origin until explicitly restored.
 let navigationQueue = Promise.resolve();
+function endReadingOnNavigation(tabId,url) {
+  const task=navigationQueue.then(async()=>{
+    if(!chrome.storage.session)return;
+    const key=`aiRecentPage:${tabId}`,previous=(await chrome.storage.session.get(key))[key];
+    if(!previous)return;
+    let originHash;
+    try{const current=new URL(url);if(/^https?:$/.test(current.protocol))originHash=await digest(current.origin);}catch{}
+    if(previous.originHash!==originHash)await chrome.storage.session.remove(key);
+  });
+  navigationQueue=task.catch(()=>{});
+  return navigationQueue;
+}
 async function forgetAllPages() {
   if (!chrome.storage.session) return;
-  const state = await chrome.storage.session.get(null);
-  await chrome.storage.session.remove(Object.keys(state).filter(key => key.startsWith("aiRecentPage:")));
+  const task=navigationQueue.then(async()=>{
+    const state = await chrome.storage.session.get(null);
+    await chrome.storage.session.remove(Object.keys(state).filter(key => key.startsWith("aiRecentPage:")));
+  });
+  navigationQueue=task.catch(()=>{});
+  return task;
 }
 function recentPage(request, sender) {
   const task = navigationQueue.then(async () => {
     if (!chrome.storage.session || sender.id !== chrome.runtime.id || sender.frameId !== 0 || !sender.tab || sender.tab.incognito || !/^https?:/.test(sender.url || "")) return {};
     const key = `aiRecentPage:${sender.tab.id}`;
-    const policy = cachePolicy(twpConfig.get("aiCacheSettings"));
-    if (request.action === "aiForgetPage" || !policy.enabled) { await chrome.storage.session.remove(key); return {}; }
-    const urlHash = await digest(sender.url);
+    if (request.action === "aiForgetPage" || !twpConfig.get("continueReadingTranslation")) { await chrome.storage.session.remove(key); return {}; }
+    const url=new URL(documentURLOf(sender));
+    const originHash = await digest(url.origin);
     if (request.action === "aiRememberPage") {
-      await chrome.storage.session.set({[key]: {urlHash, target: String(request.targetLanguage || "zh-CN").slice(0,40), createdAt: Date.now()}});
+      await chrome.storage.session.set({[key]: {originHash, target: String(request.targetLanguage || "zh-CN").slice(0,40), service: String(request.service || "openai").slice(0,80), createdAt: Date.now()}});
       return {};
     }
     const previous = (await chrome.storage.session.get(key))[key];
-    if (previous?.urlHash === urlHash && Date.now() - previous.createdAt < policy.ttl) return {targetLanguage: previous.target};
+    if (previous?.originHash === originHash && Date.now() - previous.createdAt < 86400000) return {targetLanguage: previous.target,service:previous.service};
     await chrome.storage.session.remove(key);
     return {};
   });

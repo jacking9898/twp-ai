@@ -17,8 +17,11 @@ test('browser-supplied top SPA URL selects current preferences without importing
  const {preferenceSourcesOf,sourceOf}=await import('../extension/ai-insights.js');
  const previous=global.chrome;global.chrome={runtime:{getURL:path=>'chrome-extension://fixture/'+path}};try{
  const sender={url:'https://example.com/article?_gl=one',frameId:0,tab:{id:1,url:'https://example.com/article?_gl=two#part'}};
- const same=await preferenceSourcesOf({},sender);assert.equal(same.legacySource,await sourceOf({},sender));
+ const same=await preferenceSourcesOf({},sender);assert.equal(same.legacySource,await sourceOf({},{...sender,tab:{id:1}}));
  const next=await preferenceSourcesOf({documentKey:'web:untrusted'}, {...sender,tab:{id:1,url:'https://example.com/other'}});assert.notEqual(next.source,same.source);assert.equal(next.legacySource,'');
+ assert.equal(next.siteSource,same.siteSource);
+ assert.notEqual((await preferenceSourcesOf({}, {...sender,url:'https://other.example/article',tab:{id:1,url:'https://other.example/other'}})).siteSource,same.siteSource);
+ assert.notEqual(await sourceOf({},sender),await sourceOf({},{...sender,tab:{id:1,url:'https://example.com/other'}}));
  const changedOrigin=await preferenceSourcesOf({}, {...sender,tab:{id:1,url:'https://different.example/other'}});assert.equal(changedOrigin.source,same.source);
  const frame=await preferenceSourcesOf({}, {...sender,frameId:1,tab:{id:1,url:'https://example.com/other'}});assert.equal(frame.source,same.source);
  }finally{global.chrome=previous;}

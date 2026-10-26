@@ -10,7 +10,7 @@ const path=require('node:path'),fs=require('node:fs');
  const route=()=>context.route('https://developers.google.com/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><title>Machine learning guide</title><h1>Fairness: Mitigating bias</h1><p>The model should be evaluated fairly across data slices.</p>'}));
  const article='https://developers.google.com/machine-learning/crash-course/fairness/mitigating-bias';
  const panel=page=>page.locator('#twp-floating');
- async function open(page){await panel(page).locator('#toggle').hover();await panel(page).locator('#settings').click();await expect(panel(page).locator('#domain')).toBeEnabled();}
+ async function open(page){await panel(page).locator('#toggle').hover();await panel(page).locator('#settings').click();await expect(panel(page).locator('#domain')).toBeEnabled();await panel(page).locator('#ai-setting-scope').selectOption('page');await expect(panel(page).locator('#domain')).toBeEnabled();}
  async function check(page,values=['ml','public-tech','academic']){for(const [i,id]of ['domain','page-glossary','page-style'].entries())await expect(panel(page).locator('#'+id)).toHaveValue(values[i]);}
  async function choose(page){for(const [id,value]of [['domain','ml'],['page-glossary','public-tech'],['page-style','academic']]){await panel(page).locator('#'+id).selectOption(value);await expect(panel(page).locator('#page-ai-notice')).toContainText('已保存');await expect(panel(page).locator('#'+id)).toBeEnabled();}}
  try{

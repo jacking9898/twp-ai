@@ -29,6 +29,7 @@ const twpConfig = (function () {
     aiActiveProfile: "",
     aiTranslationSettings: { domain: "general", acronyms: "keep", glossary: [] },
     aiCacheSettings: { enabled: true, ttlHours: 168 },
+    continueReadingTranslation: true,
     aiCustomExperts: [],
     aiCustomGlossaries: [],
     textComparisonServices: ["google", "bing", "yandex"],
