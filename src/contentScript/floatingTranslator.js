@@ -21,9 +21,11 @@ void (async () => {
       #badge{display:none;width:21px;height:21px;align-items:center;justify-content:center;font:700 13px/1 system-ui;color:var(--accent-ink);background:var(--accent)!important;bottom:-5px;right:-5px;border:2px solid var(--bg)}#toggle[data-state=translated],#toggle[data-state=translating],#toggle[data-state=error]{border:2px solid var(--accent);box-shadow:0 0 0 3px var(--tint),0 3px 16px #0002}#toggle[data-state=translated] #badge,#toggle[data-state=error] #badge{display:flex}#toggle[data-state=translating] #badge{display:block;border:3px solid var(--tint);border-top-color:var(--accent);background:var(--bg)!important;animation:status-spin .8s linear infinite}#toggle[data-state=error] #badge{background:var(--error)!important;color:var(--bg)}@keyframes status-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){#badge{animation:none!important}}
       #toggle{opacity:.25;transition:opacity .16s ease}#dock:hover #toggle,#toggle:focus-visible,#toggle:active,#dock[data-panel-open=true] #toggle{opacity:1}@media(prefers-reduced-motion:reduce){#toggle{transition:none}}
       #cache-manage{width:100%;min-height:36px;margin-top:8px;font-size:12px;font-weight:600;color:var(--accent);border-color:var(--accent);background:var(--tint)}#cache-manage:hover{background:var(--surface)}
+      #failure{position:absolute;right:54px;top:0;width:300px;max-width:calc(100vw - 80px);max-height:100px;overflow:auto;background:var(--bg);color:var(--fg);border:1px solid var(--error,#c54f2c);border-radius:12px;padding:11px 13px;box-shadow:0 6px 24px #0002;font-size:12px;overflow-wrap:anywhere}#failure[data-side=left]{right:auto;left:54px}#failure strong{display:block;margin-bottom:4px}#failure-retry{margin-top:8px;padding:4px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg)}#dock[data-panel-open=true] #failure{display:none}#toggle[data-state=error]{opacity:1}
     </style><link rel="stylesheet" href="${chrome.runtime.getURL("lib/brandTheme.css")}">
     <div id="dock"><div id="tools" hidden><button id="sidebar" title="翻译侧边栏" aria-label="打开翻译侧边栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 2v9M13 6.5h9"/></svg></button><button id="settings" title="控制面板" aria-label="控制面板" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h4m6 0h8M3 18h10m6 0h2"/><circle cx="10" cy="6" r="3"/><circle cx="16" cy="18" r="3"/></svg></button></div>
       <button id="toggle" aria-label="翻译网页" title="点击翻译 / 再次恢复原文；拖动调整位置"><img alt="" src="${chrome.runtime.getURL("icons/reading.png")}"><span id="badge" aria-hidden="true"></span></button>
+      <div id="failure" hidden><div role="status" aria-live="polite"><strong>翻译失败</strong><span id="failure-message"></span></div><button id="failure-retry" aria-label="重试本页翻译">重试</button></div>
       <section id="panel" hidden aria-label="控制面板"><div class="heading"><button id="back" hidden aria-label="返回控制面板">←</button><strong id="panel-title">控制面板</strong><button id="close" aria-label="关闭面板">关闭</button></div><div id="main-content">
         <div class="pair"><div><label for="target">目标语言</label><select id="target"></select></div><div><label for="mode">显示方式</label><select id="mode"><option value="bilingual">双语对照</option><option value="translated">仅译文</option></select></div></div>
         <label for="engine">翻译服务</label><select id="engine"><option value="bing">微软翻译</option><option value="google">谷歌翻译</option><option value="yandex">Yandex</option><option value="openai">AI · 自定义模型</option></select>
@@ -72,6 +74,7 @@ void (async () => {
     host.style.setProperty(side, "12px", "important");
     host.style.setProperty(side === "left" ? "right" : "left", "auto", "important");
     $("panel").dataset.side = side;
+    $("failure").dataset.side = side;
     const panelHeight = $("panel").getBoundingClientRect().height || 550;
     $("panel").style.top = `${Math.max(12 - top, Math.min(-110, window.innerHeight - top - panelHeight - 12))}px`;
   }
@@ -82,14 +85,19 @@ void (async () => {
   const labels = { original: "翻译网页", translating: "取消翻译并恢复原文", translated: "显示原文", error: "重试翻译" };
   function state() {
     const value = pageTranslator.getState();
+    const error = value === "error" ? (pageTranslator.getError() || "未能完成翻译，请检查网络或更换服务后重试") : "";
     $("toggle").dataset.state = value;
     $("toggle").setAttribute("aria-label", labels[value]);
     $("toggle").setAttribute("aria-pressed", String(value === "translated"));
     $("badge").textContent = {original:'',translated:'✓',translating:'',error:'!'}[value] || '';
-    $("toggle").title = ({original:'原文 · 点击翻译',translated:'已翻译 · 点击恢复原文',translating:'翻译中 · 点击取消',error:'翻译失败 · 点击重试'}[value] || labels[value]) + '；拖动调整位置';
+    $("toggle").title = (error ? `翻译失败：${error} · 点击重试` : ({original:'原文 · 点击翻译',translated:'已翻译 · 点击恢复原文',translating:'翻译中 · 点击取消'}[value] || labels[value])) + '；拖动调整位置';
+    $("failure").hidden = !error;
+    $("failure-message").textContent = error;
+    if (error) $("toggle").setAttribute("aria-describedby", "failure-message");
+    else $("toggle").removeAttribute("aria-describedby");
     $("translate").textContent = labels[value];
     $("status").dataset.error = value === "error";
-    $("status").textContent = value === "error" ? (pageTranslator.getError() || "翻译失败，请检查网络或更换服务") :
+    $("status").textContent = value === "error" ? error :
       value === "translating" ? "正在翻译可见内容…" : value === "translated" ? "当前可见内容已翻译" : "点击图标即可翻译；悬停展开工具。";
   }
   function controls() {
@@ -150,6 +158,7 @@ void (async () => {
     }
   }
   $("toggle").onclick = toggle;
+  $("failure-retry").onclick = toggle;
   $("translate").onclick = toggle;
   $("retranslate").onclick = () => pageTranslator.translatePage(twpConfig.get("targetLanguage"), {forceRefresh: true});
   $("cache-duration").onchange = () => twpConfig.set("aiCacheSettings", {enabled: $("cache-duration").value !== "0", ttlHours: Number($("cache-duration").value) || 168});

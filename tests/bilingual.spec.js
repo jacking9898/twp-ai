@@ -1009,10 +1009,34 @@ test("a hung request times out and a late response cannot undo restore", async (
   await translate(page);
   await page.clock.fastForward(30001);
   await expect.poll(() => page.evaluate(() => testStates.at(-1))).toBe("error");
+  expect(await page.evaluate(() => pageTranslator.getError())).toContain("等待超时");
   await page.evaluate(() => pageTranslator.restorePage());
   await page.clock.fastForward(60000);
   expect(await page.evaluate(() => testStates.at(-1))).toBe("original");
   await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
+});
+
+test("AI translation can complete after 65 seconds and preserves the background diagnostic", async ({page}) => {
+  await setup(page);
+  await page.clock.install();
+  await page.evaluate(() => {
+    window.twpAIClient = {call:async()=>({}),cancel:()=>{},translate:async texts => {
+      await new Promise(resolve=>setTimeout(resolve,70000));
+      if (window.aiFailure) throw new Error(window.aiFailure);
+      return texts.map(text=>'中文：'+text);
+    }};
+    twpConfig.set('pageTranslatorService','openai');
+  });
+  await translate(page);
+  await page.clock.fastForward(65001);
+  expect(await page.evaluate(() => testStates.at(-1))).toBe('translating');
+  await page.clock.fastForward(5000);
+  await expect(page.locator('#intro [data-twp-bilingual]')).toHaveCount(1);
+  await page.evaluate(() => {window.aiFailure='AI 服务账户余额或额度不足（HTTP 402）';});
+  await translate(page);
+  await page.clock.fastForward(70001);
+  await expect.poll(() => page.evaluate(() => testStates.at(-1))).toBe('error');
+  expect(await page.evaluate(() => pageTranslator.getError())).toContain('HTTP 402');
 });
 
 test("fixed-height tab labels keep both languages on one line without clipping the original", async ({ page }) => {

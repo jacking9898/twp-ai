@@ -491,11 +491,11 @@ const bilingualTranslator = (() => {
       const results = await Promise.race([
         session.translate(batch.map(record => [textForTranslation(record)])),
         new Promise((_, reject) => {
-          session.requestTimer = setTimeout(() => reject(new Error("Translation request timed out")), session.requestTimeout);
+          session.requestTimer = setTimeout(() => reject(new Error("翻译请求等待超时，请检查网络或更换服务后重试")), session.requestTimeout);
         }),
       ]);
       if (!Array.isArray(results) || results.length !== batch.length) {
-        throw new Error("Missing bilingual translation response");
+        throw new Error("翻译服务未返回完整结果，请重试或更换服务");
       }
       if (activeSession !== session) return;
       batch.forEach((record, i) => {
@@ -503,7 +503,7 @@ const bilingualTranslator = (() => {
         if (!unchanged(record)) return;
         if (!Array.isArray(results[i]) || !results[i].length ||
             results[i].some(text => typeof text !== "string")) {
-          throw new Error("Invalid bilingual translation response");
+          throw new Error("翻译服务返回的内容格式不正确，请重试或更换服务");
         }
         render(session, record, results[i].join(" ").trim());
         record.state = "done";

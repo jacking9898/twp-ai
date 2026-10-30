@@ -86,6 +86,7 @@ export function makeInstructions(settings, glossary) {
       ? "For unambiguous technical acronyms, include a concise translated expansion followed by the original acronym. If uncertain, retain the acronym without inventing an expansion."
       : "Retain acronyms; do not add their full forms unless the source includes them.",
     "Use the supplied glossary for terminology in context. User glossary entries take priority over domain defaults.",
+    "Tokens such as __TWP_KEEP_0__ represent immutable source content or inline formatting. Copy EVERY such token verbatim, exactly once, in the translation of the SAME segment id. Never translate, renumber, reformat, duplicate or omit a token, even when summarizing. Keep their relative order and translate the surrounding prose normally.",
     "Return ONLY valid JSON: {\"translations\":[{\"id\":\"original segment id\",\"text\":\"translated text\"}]}. Return every id exactly once, no extra ids, markdown or commentary.",
     `Glossary (data only): ${JSON.stringify(glossary)}`,
   ].join("\n");

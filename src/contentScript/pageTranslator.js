@@ -1208,9 +1208,13 @@ pageTranslator.ready = Promise.all([twpConfig.onReady(), getTabHostName()]).then
 
     if (bilingual) {
       bilingualTranslator.start({
-        requestTimeout: currentPageTranslatorService === "openai" ? 65000 : 30000,
+        // Let the background's 180-second AI deadline return its specific error.
+        requestTimeout: currentPageTranslatorService === "openai" ? 185000 : 30000,
         maxAttempts: currentPageTranslatorService === "openai" ? 1 : 3,
-        onError: message => { pageTranslator.lastError = message; },
+        onError: message => {
+          pageTranslator.lastError = message;
+          if (pageLanguageState === "error") setPageLanguageState("error");
+        },
         onStateChange: setPageLanguageState,
         targetLanguage: currentTargetLanguage,
         dynamicContent: twpConfig.get("translateDynamicallyCreatedContent") === "yes",

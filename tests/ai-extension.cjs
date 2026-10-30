@@ -20,7 +20,7 @@ const path = require("node:path");
         if (mode === "unauthorized") { res.writeHead(401, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: { message: "private-provider-detail-do-not-forward", type: "invalid_api_key" } })); }
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ id: "chatcmpl-test", object: "chat.completion", created: 1, model: body.model,
-          choices: [{ index: 0, message: { role: "assistant", content: mode === "invalid" ? "not JSON" : JSON.stringify({ translations }) }, finish_reason: "stop" }],
+          choices: [{ index: 0, message: { role: "assistant", content: mode === "invalid" ? "not JSON" : JSON.stringify({ translations: mode === "missing-placeholder" ? translations.map(row=>({...row,text:row.text.replace(/__TWP_KEEP_\d+__/g, '')})) : translations }) }, finish_reason: "stop" }],
           usage: { prompt_tokens: 25, completion_tokens: 15, total_tokens: 40 } }));
       }, delay);
     });
@@ -161,16 +161,41 @@ const path = require("node:path");
     await page.getByRole("button", { name: "翻译网页", exact: true }).click();
     await expect(page.getByRole("button", { name: "重试翻译", exact: true })).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "重试翻译", exact: true }).hover();
+    await expect(page.locator("#twp-floating #panel")).toBeHidden();
+    await expect(page.locator("#twp-floating #failure")).toBeVisible();
+    await expect(page.locator("#twp-floating #failure-message")).toContainText("HTTP 401");
+    await expect(page.locator("#twp-floating #toggle")).toHaveAttribute("title", /密钥无效.*HTTP 401/);
+    expect(await page.locator("#twp-floating #failure-message").textContent()).not.toContain("private-provider");
+    await page.screenshot({path:path.resolve("build/translation-failure-preview.png")});
+    mode = "invalid";
+    await page.locator("#twp-floating #failure-retry").click();
+    await expect(page.locator("#twp-floating #failure-message")).toContainText("返回格式不正确", {timeout:15000});
     await page.getByRole("button", { name: "控制面板", exact: true }).click();
-    await expect(page.locator("#twp-floating #status")).toContainText("密钥无效");
+    await expect(page.locator("#twp-floating #failure")).toBeHidden();
+    await expect(page.locator("#twp-floating #status")).toContainText("返回格式不正确");
     expect(await page.locator("#twp-floating #status").textContent()).not.toContain("private-provider");
     mode = "invalid";
     await page.locator("#twp-floating #translate").click();
     await expect(page.locator("#twp-floating #status")).toContainText("返回格式不正确", { timeout: 15000 });
     await expect(page.locator("[data-twp-bilingual]")).toHaveCount(0);
-    mode = "normal";
+    // Match the real DeepSeek failure: valid JSON with a missing protected link.
+    mode = "missing-placeholder";
+    await page.locator("#first").evaluate(node => node.textContent = "Original paper: https://arxiv.org/abs/1707.06347");
     await page.locator("#twp-floating #translate").click();
+    await expect(page.locator("#twp-floating #status")).toContainText("模型未能完整保留代码、公式或链接", {timeout:15000});
+    expect(calls.at(-1).body.messages[0].content).toContain("exactly once");
+    await page.locator("#twp-floating #close").click();
+    await expect(page.locator("#twp-floating #failure-message")).toContainText("模型未能完整保留代码、公式或链接");
+    await expect(page.locator("#twp-floating #failure")).toBeVisible();
+    await page.screenshot({path:path.resolve("build/translation-protection-failure-preview.png")});
+    mode = "normal";
+    await page.locator("#twp-floating #failure-retry").click();
     await expect(page.locator("#first [data-twp-bilingual]")).toHaveCount(1);
+    await expect(page.locator("#first [data-twp-bilingual]")).toContainText("https://arxiv.org/abs/1707.06347");
+    await expect(page.locator("#twp-floating #failure")).toBeHidden();
+    await expect(page.locator("#twp-floating #toggle")).not.toHaveAttribute("title", /翻译失败/);
+    await page.locator("#twp-floating #toggle").hover();
+    await page.getByRole("button", {name:"控制面板",exact:true}).click();
     await page.screenshot({ path: path.resolve("build/floating-ai-preview.png") });
     await page.locator("#second").evaluate(element => {
       const range = document.createRange();
